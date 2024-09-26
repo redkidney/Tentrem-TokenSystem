@@ -1,6 +1,7 @@
 <?php
 
 use Illuminate\Support\Facades\Route;
+use App\Http\Controllers\TokenController;
 
 /*
 |--------------------------------------------------------------------------
@@ -16,3 +17,21 @@ use Illuminate\Support\Facades\Route;
 Route::get('/', function () {
     return view('welcome');
 });
+
+// Registry routes
+Route::get('/registry', [TokenController::class, 'showRegistry'])->name('registry')->middleware('auth');
+Route::post('/generate-token', [TokenController::class, 'generateToken'])->name('generate-token')->middleware('auth');
+
+//Customer routes
+Route::get('/customer/{port}', [TokenController::class, 'showCustomer'])->name('customer');
+Route::post('/customer/validate', [TokenController::class, 'validateToken'])->name('customer.validate');
+
+// Start and end charging
+Route::post('/start-charging', [TokenController::class, 'startCharging'])->name('start-charging');
+Route::post('/customer/{port}/end', [TokenController::class, 'endCharging'])->name('end-charging');
+
+Auth::routes();
+
+Route::get('/home', [App\Http\Controllers\HomeController::class, 'index'])->name('home');
+Route::post('/logout', [App\Http\Controllers\Auth\LoginController::class, 'logout'])->name('logout');
+
