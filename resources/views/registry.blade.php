@@ -6,6 +6,7 @@
     <title>Registry - Generate Token</title>
     <!-- Include Tailwind CSS -->
     <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <script src="https://unpkg.com/alpinejs@2.8.2/dist/alpine.js" defer></script>
 </head>
 <body class="bg-gray-100 p-6">
 
@@ -29,22 +30,46 @@
         <h1 class="text-center text-3xl font-bold mb-6">Generate Charging Token</h1>
 
         <!-- Success message -->
-        @if(session('success'))
-            <p class="text-center text-green-600 font-semibold mb-6">{{ session('success') }}</p>
-        @endif
+        <div x-data="{ successMessage: @if(session('success')) '{{ session('success') }}' @else '' @endif }">
+            <p x-show="successMessage" x-text="successMessage" class="text-center text-green-600 font-semibold mb-6"></p>
+        </div>
 
         <!-- Token Generation Form -->
-        <div class="bg-white p-6 rounded-lg shadow-md">
+        <div class="bg-white p-6 rounded-lg shadow-md" x-data="{ formData: { guest_name: '', room_no: '', phone: '', expiry: 720, duration: 60 } }">
             <form method="POST" action="{{ route('generate-token') }}">
                 @csrf
+
+                <!-- Guest Name Input -->
+                <div class="mb-4">
+                    <label for="guest_name" class="block text-gray-700">Guest Name:</label>
+                    <input type="text" name="guest_name" id="guest_name" x-model="formData.guest_name" required class="w-full p-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-green-500" placeholder="Enter guest name">
+                </div>
+
+                <!-- Room Number Input -->
+                <div class="mb-4">
+                    <label for="room_no" class="block text-gray-700">Room Number:</label>
+                    <input type="text" name="room_no" id="room_no" x-model="formData.room_no" required class="w-full p-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-green-500" placeholder="Enter room number">
+                </div>
+
+                <!-- Phone Number Input -->
+                <div class="mb-4">
+                    <label for="phone" class="block text-gray-700">Phone Number:</label>
+                    <input type="text" name="phone" id="phone" x-model="formData.phone" required class="w-full p-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-green-500" placeholder="Enter phone number">
+                </div>
+
+                <!-- Token Expiry Input -->
                 <div class="mb-4">
                     <label for="expiry" class="block text-gray-700">Token Expiry (in minutes):</label>
-                    <input type="number" name="expiry" id="expiry" value="720" required class="w-full p-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-green-500">
+                    <input type="number" name="expiry" id="expiry" x-model="formData.expiry" required class="w-full p-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-green-500">
                 </div>
+
+                <!-- Timer Duration Input -->
                 <div class="mb-4">
                     <label for="duration" class="block text-gray-700">Timer Duration (in minutes):</label>
-                    <input type="number" name="duration" id="duration" value="60" required class="w-full p-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-green-500">
+                    <input type="number" name="duration" id="duration" x-model="formData.duration" required class="w-full p-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-green-500">
                 </div>
+
+                <!-- Submit Button -->
                 <button type="submit" class="w-full bg-green-500 text-white py-2 rounded-md hover:bg-green-600 transition duration-300">Generate Token</button>
             </form>
         </div>
@@ -79,7 +104,6 @@
             @endif
         </div>
     </div>
-
 
     <!-- Include Alpine.js for Dropdown -->
     <script src="https://unpkg.com/alpinejs@2.8.2/dist/alpine.js" defer></script>

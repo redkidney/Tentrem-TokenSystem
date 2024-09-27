@@ -35,7 +35,10 @@ class TokenController extends Controller
     {
         $request->validate([
             'expiry' => 'required|integer|min:1|max:1440', // Expiry in minutes
-            'duration' => 'required|integer|min:1|max:1440' // Charging duration in minutes
+            'duration' => 'required|integer|min:1|max:1440', // Charging duration in minutes
+            'guest_name' => 'required|string|max:255',
+            'room_no' => 'required|string|max:50',
+            'phone' => 'nullable|string|max:20',
         ]);
 
         // Generate a random 5-digit token (number)
@@ -46,7 +49,10 @@ class TokenController extends Controller
             'token' => $token,
             'expiry' => now()->addMinutes($request->expiry),
             'duration' => $request->duration,
-            'used' => false
+            'used' => false,
+            'guest_name' => $request->input('guest_name'),
+            'room_no' => $request->input('room_no'),
+            'phone' => $request->input('phone')
         ]);
 
         return redirect()->route('registry')->with('success', "Token $token generated successfully!");
@@ -101,6 +107,7 @@ class TokenController extends Controller
             'token' => 'required|string',
             'port' => 'required|integer|in:1,2', // Validate the port
         ]);
+
         // Fetch the token
         $token = Token::where('token', $request->token)->first();
 
@@ -111,12 +118,15 @@ class TokenController extends Controller
         // Set start time for charging
         $startTime = now();
         $token->update(['start_time' => $startTime]);
-        
-        // Insert a new charging session record using the model
+
+        // Insert a new charging session record using the model, including guest details
         ChargingSession::create([
             'token' => $request->token,
             'charging_port' => $request->port,
             'start_time' => $startTime,
+            'guest_name' => $token->guest_name, // Adding guest name from token
+            'room_no' => $token->room_no,       // Adding room number from token
+            'phone' => $token->phone,           // Adding phone number from token
         ]);
 
         // Dispatch the job to stop charging after the duration
@@ -136,6 +146,7 @@ class TokenController extends Controller
             return response()->json(['success' => false, 'message' => $mqttResponse['message']], 500);
         }
     }
+
 
     // End charging when the session ends or user cancels
     public function endCharging(Request $request, $port)
