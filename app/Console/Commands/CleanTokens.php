@@ -19,46 +19,66 @@ class CleanTokens extends Command
     {
         $now = now();  // Get the current time
 
-        // Step 1: Handle expired tokens based on the expiry time
+        // Step 1: Handle expired tokens
         $this->info('Processing expired tokens...');
-        $expiredTokensCount = $this->handleExpiredTokens($now);
-        $this->info("Expired tokens processed: $expiredTokensCount");
+        $expiredTokensCount = $this->deleteExpiredTokens($now);
+        $this->info("Expired tokens deleted: $expiredTokensCount");
 
-        // Step 2: Clean up used tokens older than 24 hours
-        $this->info('Cleaning up used tokens older than 24 hours...');
+        // Step 2: Handle used tokens older than 24 hours
+        $this->info('Processing used tokens older than 24 hours...');
         $deletedTokensCount = $this->deleteUsedTokens();
         $this->info("Used tokens deleted: $deletedTokensCount");
 
-        Log::info('Expired and used tokens processed.');
+        Log::info('Expired and used tokens processed.', [
+            'expiredTokens' => $expiredTokensCount,
+            'deletedTokens' => $deletedTokensCount,
+        ]);
     }
 
-    // Handle expired tokens based on the expiry time
-    protected function handleExpiredTokens($now)
+    /**
+     * Delete tokens that are expired and not yet used.
+     *
+     * @param  \Carbon\Carbon  $now
+     * @return int  Number of deleted expired tokens
+     */
+    protected function deleteExpiredTokens($now)
     {
         // Fetch tokens that are expired but not yet used
         $tokens = Token::where('expiry', '<', $now)
                        ->where('used', false)
                        ->get();
 
-        $expiredCount = 0;
+        Log::info("Expired tokens being deleted:", ['tokens' => $tokens->pluck('id')]);
 
+        // Delete the tokens and return the count
+        $expiredCount = $tokens->count();
         foreach ($tokens as $token) {
-            // Delete expired tokens
             $token->delete();
-            $expiredCount++;
         }
 
         return $expiredCount;
     }
 
-    // Delete tokens that are marked as "used" and older than 24 hours
+    /**
+     * Delete tokens that are marked as used and older than 24 hours.
+     *
+     * @return int  Number of deleted used tokens
+     */
     protected function deleteUsedTokens()
     {
-        // Find all used tokens that are older than 24 hours
-        $tokensCount = Token::where('used', true)
-                            ->where('updated_at', '<', Carbon::now()->subDay()) // Older than 24 hours
-                            ->delete();
+        // Fetch tokens that are marked as used and older than 24 hours
+        $tokens = Token::where('used', true)
+                       ->where('updated_at', '<', Carbon::now()->subDay())
+                       ->get();
 
-        return $tokensCount; // This returns the number of deleted tokens
+        Log::info("Used tokens being deleted:", ['tokens' => $tokens->pluck('id')]);
+
+        // Delete the tokens and return the count
+        $deletedCount = $tokens->count();
+        foreach ($tokens as $token) {
+            $token->delete();
+        }
+
+        return $deletedCount;
     }
 }

@@ -30,7 +30,6 @@ class TokenController extends Controller
         return view('registry', compact('tokens'));
     }
 
-    // Generate a new token
     public function generateToken(Request $request)
     {
         $request->validate([
@@ -69,6 +68,12 @@ class TokenController extends Controller
 
         // Dynamically load the correct view based on the port
         return view("customer_port{$port}");
+    }
+
+    public function showBoth()
+    {
+        // Dynamically load the correct view based on the port
+        return view("charging_ports");
     }
 
     public function validateToken(Request $request)

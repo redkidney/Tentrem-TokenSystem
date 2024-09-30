@@ -7,6 +7,16 @@
     <meta name="csrf-token" content="{{ csrf_token() }}">
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+    <style>
+        .shake {
+            animation: shake 0.3s;
+        }
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-5px); }
+            75% { transform: translateX(5px); }
+        }
+    </style>
 </head>
 <body class="bg-gray-100 min-h-screen flex flex-col items-center justify-center p-4">
     <div x-data="chargingStation()" class="w-full max-w-md">
@@ -21,12 +31,37 @@
                 <form id="token-form" x-show="!isValidated" @submit.prevent="handleFormSubmit" class="space-y-4">
                     <div>
                         <label for="token" class="block text-sm font-medium text-gray-700 mb-2">Enter Token:</label>
-                        <input type="text" id="token" x-model="token" placeholder="6-character token" required maxlength="6"
-                               class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        <input type="text" id="token" x-model="token" placeholder="5-character token" required maxlength="5"
+                               class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500" 
+                               readonly :class="{'shake': showError}">
+                        <p class="text-sm text-gray-500 mt-1">Characters remaining: <span x-text="5 - token.length"></span></p>
                     </div>
-                    <button type="submit" class="w-full bg-green-500 text-white px-4 py-2 rounded-md hover:bg-green-600 transition duration-300">
-                        Submit Token
-                    </button>
+
+                    <!-- On-Screen Numeral Keypad -->
+                    <div class="grid grid-cols-3 gap-4">
+                        <!-- Number Buttons -->
+                        <template x-for="number in ['1', '2', '3', '4', '5', '6', '7', '8', '9']" :key="number">
+                            <button type="button" @click="addToToken(number)" 
+                                    class="bg-gray-200 py-2 rounded-md text-center hover:bg-gray-400 active:bg-gray-500 transition duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                <span x-text="number"></span>
+                            </button>
+                        </template>
+                        <!-- Clear Button -->
+                        <button type="button" @click="clearToken()" 
+                                class="bg-red-200 py-2 rounded-md text-center col-span-1 hover:bg-red-300 active:bg-red-400 transition duration-200 focus:outline-none focus:ring-2 focus:ring-red-500">
+                            Clear
+                        </button>
+                        <!-- Number 0 Button -->
+                        <button type="button" @click="addToToken('0')" 
+                                class="bg-gray-200 py-2 rounded-md text-center col-span-1 hover:bg-gray-400 active:bg-gray-500 transition duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            0
+                        </button>
+                        <!-- Submit Button -->
+                        <button type="submit" :disabled="token.length < 5" 
+                                class="bg-green-500 text-white py-2 rounded-md col-span-1 disabled:bg-gray-300 hover:bg-green-600 active:bg-green-700 transition duration-300 focus:outline-none focus:ring-2 focus:ring-green-500">
+                            Submit
+                        </button>
+                    </div>
                 </form>
 
                 <!-- Instructions -->
@@ -83,10 +118,24 @@
                 remainingTime: 0,
                 errorMessage: '',
                 showNotification: false,
+                showError: false,
+
+                addToToken(number) {
+                    if (this.token.length < 6) {
+                        this.token += number;
+                        this.showError = false;
+                    }
+                },
+                clearToken() {
+                    this.token = '';
+                },
                 handleFormSubmit(event) {
                     event.preventDefault();
                     this.errorMessage = '';
+                    this.showError = false;
                     const port = 1;
+
+                    // Show loading spinner (optional, can implement this as needed)
 
                     fetch('{{ route("customer.validate") }}', {
                         method: 'POST',
@@ -103,10 +152,12 @@
                             this.duration = data.duration;
                         } else {
                             this.errorMessage = data.message;
+                            this.showError = true;
                         }
                     })
                     .catch(error => {
                         this.errorMessage = 'An error occurred. Please try again.';
+                        this.showError = true;
                         console.error('Error:', error);
                     });
                 },

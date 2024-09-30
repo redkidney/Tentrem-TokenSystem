@@ -25,6 +25,7 @@ Route::post('/generate-token', [TokenController::class, 'generateToken'])->name(
 //Customer routes
 Route::get('/customer/{port}', [TokenController::class, 'showCustomer'])->name('customer');
 Route::post('/customer/validate', [TokenController::class, 'validateToken'])->name('customer.validate');
+Route::get('/charging-ports', [TokenController::class, 'showBoth'])->name('ports-both');
 
 // Start and end charging
 Route::post('/start-charging', [TokenController::class, 'startCharging'])->name('start-charging');
