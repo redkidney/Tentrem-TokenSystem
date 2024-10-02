@@ -6,11 +6,11 @@ use Illuminate\Support\Facades\Auth;
 use App\Models\Token;
 use App\Models\ChargingSession;
 use Illuminate\Http\Request;
-use Illuminate\Support\Str;
 use App\Services\MqttService;
 use App\Jobs\EndChargingJob;
 use Illuminate\Support\Facades\Log;
-use Carbon\Carbon;
+use Mike42\Escpos\Printer;
+use Mike42\Escpos\PrintConnectors\WindowsPrintConnector;
 
 class TokenController extends Controller
 {
@@ -33,14 +33,14 @@ class TokenController extends Controller
     public function generateToken(Request $request)
     {
         $request->validate([
-            'expiry' => 'required|integer|min:1|max:1440', // Expiry in minutes
-            'duration' => 'required|integer|min:1|max:1440', // Charging duration in minutes
+            'expiry' => 'required|integer|min:1|max:1440',
+            'duration' => 'required|integer|min:1|max:1440',
             'guest_name' => 'required|string|max:255',
             'room_no' => 'required|string|max:50',
             'phone' => 'nullable|string|max:20',
         ]);
 
-        // Generate a random 5-digit token (number)
+        // Generate a random 5-digit token
         $token = mt_rand(10000, 99999);
 
         // Create the token entry in the database
@@ -54,11 +54,40 @@ class TokenController extends Controller
             'phone' => $request->input('phone')
         ]);
 
-        return redirect()->route('registry')->with('success', "Token $token generated successfully!");
+        // Try to print the token
+        try {
+            $connector = new WindowsPrintConnector("ZJ-58");
+            $printer = new Printer($connector);
+
+            $header = "Hotel Tentrem Yogyakarta \n";
+            $printer->setJustification(Printer::JUSTIFY_CENTER);
+            $printer->setEmphasis(true);
+            $printer->text("$header");
+            $printer->setEmphasis(false);
+            $printer->text("-----------------------------\n");
+            $printer->text("Guest: " . $request->input('guest_name') . "\n");
+            $printer->feed();
+            $printer->setJustification(Printer::JUSTIFY_CENTER);
+            $printer->setTextSize(2, 2);
+            $printer->setEmphasis(true);
+            $printer->text("TOKEN: " . $token . "\n");
+            $printer->setEmphasis(false);
+            $printer->setTextSize(1, 1);
+            $printer->text("Expiry: " . now()->addMinutes($request->expiry)->format('Y-m-d H:i') . "\n");
+            $printer->text("Duration: " . $request->duration . " minutes\n");
+            $printer->feed(2);
+            $printer->cut();
+            $printer->close();
+
+        } catch (\Exception $e) {
+            Log::error("Failed to print receipt for token $token. Error: " . $e->getMessage());
+            // Allow the process to continue, only log the printer error
+            return redirect()->route('registry')->with('error', 'Failed to print receipt. Token generated successfully.');
+        }
+
+        return redirect()->route('registry')->with('success', "Token $token generated and printed successfully!");
     }
 
-
-    // Show customer form for Port 1
     public function showCustomer($port)
     {
         // Validate the port to ensure it is either 1 or 2
@@ -152,8 +181,6 @@ class TokenController extends Controller
         }
     }
 
-
-    // End charging when the session ends or user cancels
     public function endCharging(Request $request, $port)
     {
         try {
@@ -197,6 +224,24 @@ class TokenController extends Controller
             Log::error("Failed to send MQTT command to end charging for port $port: " . $e->getMessage());
             return response()->json(['success' => false, 'message' => 'Failed to stop charging'], 500);
         }
+    }
+
+    public function getPortStatus($port)
+    {
+        // Fetch the necessary data for the port
+        // This is just an example, adjust according to your actual data structure
+        $portData = [
+            'token' => '',
+            'isValidated' => false,
+            'isCharging' => false,
+            'duration' => 0,
+            'remainingTime' => 0,
+            'errorMessage' => '',
+            'showNotification' => false,
+            'showError' => false
+        ];
+
+        return response()->json($portData);
     }
 
     protected function sendMQTTCommand($port, $action, $duration = null)

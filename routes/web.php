@@ -31,6 +31,9 @@ Route::get('/charging-ports', [TokenController::class, 'showBoth'])->name('ports
 Route::post('/start-charging', [TokenController::class, 'startCharging'])->name('start-charging');
 Route::post('/customer/{port}/end', [TokenController::class, 'endCharging'])->name('end-charging');
 
+// New route for fetching port status as JSON
+Route::get('/customer/{port}/status', [TokenController::class, 'getPortStatus'])->name('customer.port-status');
+
 Auth::routes();
 
 Route::get('/home', [App\Http\Controllers\HomeController::class, 'index'])->name('home');
