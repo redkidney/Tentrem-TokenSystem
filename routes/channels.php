@@ -16,3 +16,8 @@ use Illuminate\Support\Facades\Broadcast;
 Broadcast::channel('App.Models.User.{id}', function ($user, $id) {
     return (int) $user->id === (int) $id;
 });
+
+Broadcast::channel('charging-port', function ($user, $status, $port) {
+    // Return true or false to authorize the user to listen to the channel
+    return true;
+});

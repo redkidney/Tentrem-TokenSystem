@@ -2,7 +2,7 @@
 
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\TokenController;
-
+use App\Events\ChargingStatus;
 /*
 |--------------------------------------------------------------------------
 | Web Routes
@@ -31,11 +31,16 @@ Route::get('/charging-ports', [TokenController::class, 'showBoth'])->name('ports
 Route::post('/start-charging', [TokenController::class, 'startCharging'])->name('start-charging');
 Route::post('/customer/{port}/end', [TokenController::class, 'endCharging'])->name('end-charging');
 
-// New route for fetching port status as JSON
-Route::get('/customer/{port}/status', [TokenController::class, 'getPortStatus'])->name('customer.port-status');
+// // New route for fetching port status as JSON
+// Route::get('/customer/{port}/status', [TokenController::class, 'getPortStatus'])->name('customer.port-status');
 
 Auth::routes();
 
 Route::get('/home', [App\Http\Controllers\HomeController::class, 'index'])->name('home');
 Route::post('/logout', [App\Http\Controllers\Auth\LoginController::class, 'logout'])->name('logout');
+
+Route::get('/test-event', function() {
+    event(new ChargingStatus('charging_started', 1));
+    return 'Event dispatched';
+});
 

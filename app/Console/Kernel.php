@@ -3,6 +3,7 @@
 namespace App\Console;
 
 use Illuminate\Console\Scheduling\Schedule;
+use App\Jobs\MqttSubscribeJob;
 use Illuminate\Foundation\Console\Kernel as ConsoleKernel;
 
 class Kernel extends ConsoleKernel
@@ -16,7 +17,10 @@ class Kernel extends ConsoleKernel
      */
     protected function schedule(Schedule $schedule)
     {
-        $schedule->command('tokens:clean')->daily()->at('13:00');
+        $schedule->command('tokens:clean')->daily();
+        $schedule->job(new MqttSubscribeJob(), 'long_running')
+            ->everyMinute()
+            ->withoutOverlapping();
     }
 
     /**

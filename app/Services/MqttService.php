@@ -5,15 +5,15 @@ namespace App\Services;
 use PhpMqtt\Client\MqttClient;
 use PhpMqtt\Client\Exceptions\MqttClientException;
 use PhpMqtt\Client\ConnectionSettings;
+use Illuminate\Support\Facades\Log;
 
 class MqttService
 {
     protected $client;
+    private $subscriptions = [];
 
-    // Constructor to initialize MQTT client
     public function __construct()
     {
-        // Initialize the MQTT client with broker details from the config
         $this->client = new MqttClient(
             config('mqtt.host'), 
             config('mqtt.port'), 
@@ -21,25 +21,37 @@ class MqttService
         );
     }
 
-    // Method to connect to the MQTT broker using ConnectionSettings
     public function connect()
     {
         try {
-            // Create connection settings object with username, password, and other details
             $settings = (new ConnectionSettings())
                 ->setUsername(config('mqtt.username'))
                 ->setPassword(config('mqtt.password'))
-                ->setUseTls(config('mqtt.use_tls', false)) // Default to 'false' if not set
-                ->setKeepAliveInterval(config('mqtt.keep_alive_interval', 60)); // Optional, default is 60 seconds
+                ->setUseTls(config('mqtt.use_tls', false))
+                ->setKeepAliveInterval(config('mqtt.keep_alive_interval', 60));
 
-            // Connect to the MQTT broker
-            $this->client->connect($settings, config('mqtt.clean_session', true)); // Pass clean_session directly here
+            $this->client->connect($settings, config('mqtt.clean_session', true));
+            Log::info('(MqttService) Connected to MQTT broker.');
+
         } catch (MqttClientException $e) {
-            throw new \Exception('Could not connect to MQTT broker: ' . $e->getMessage());
+            Log::error('(MqttService) Could not connect to MQTT broker: ' . $e->getMessage());
+            $this->reconnect(); // Attempt reconnection on failure
         }
     }
 
-    // Method to publish a message to a specific MQTT topic
+    public function reconnect()
+    {
+        // Try reconnecting after a delay
+        sleep(5);  // Wait 5 seconds before retrying
+        try {
+            $this->connect();
+            Log::info('(MqttService) Reconnected to MQTT broker.');
+        } catch (\Exception $e) {
+            Log::error('(MqttService) Reconnection failed: ' . $e->getMessage());
+            $this->reconnect();  // Continue attempting to reconnect
+        }
+    }
+
     public function publish($topic, $message)
     {
         try {
@@ -49,38 +61,63 @@ class MqttService
                 config('mqtt.qos', 0),  // QoS level, default 0
                 config('mqtt.retain', false)  // Retain flag, default false
             );
+            Log::info("(MqttService) Published message to topic {$topic}.");
         } catch (MqttClientException $e) {
             throw new \Exception('Could not publish MQTT message: ' . $e->getMessage());
         }
     }
 
-    // Method to disconnect from the MQTT broker
     public function disconnect()
     {
         try {
             $this->client->disconnect();
+            Log::info('(MqttService) Disconnected from MQTT broker.');
         } catch (MqttClientException $e) {
             throw new \Exception('Could not disconnect from MQTT broker: ' . $e->getMessage());
         }
     }
 
-    // Optional: Method to subscribe to a topic and handle incoming messages
     public function subscribe($topic, $callback)
     {
+        $this->subscriptions[$topic] = $callback;
+    }
+
+    public function startListening()
+    {
         try {
-            $this->connect();  // Connect to the MQTT broker
+            if (!$this->client->isConnected()) {
+                $this->connect();
+            }
 
-            // Subscribe to the given topic
-            $this->client->subscribe($topic, function ($topic, $message) use ($callback) {
-                // Handle the incoming message with a callback function
-                $callback($message);
-            }, config('mqtt.qos', 0));
+            foreach ($this->subscriptions as $topic => $callback) {
+                $this->client->subscribe($topic, function ($topic, $message) use ($callback) {
+                    $callback($message);
+                }, config('mqtt.qos', 0));
+                Log::info("(MqttService) Subscribed to topic {$topic}.");
+            }
 
-            // Keep the connection open to listen for incoming messages
-            $this->client->loop(true);  // This will block and keep the loop running
+            while (true) {
+                $this->client->loop(0);
+                // Check for disconnections and attempt reconnection if needed
+                if (!$this->client->isConnected()) {
+                    Log::warning('(MqttService) Connection lost. Attempting to reconnect.');
+                    $this->reconnect();
+                }
+            }
 
         } catch (MqttClientException $e) {
-            Log::error('Failed to subscribe to MQTT topic: ' . $e->getMessage());
+            Log::error('(MqttService) Failed to subscribe to MQTT topic: ' . $e->getMessage());
+            $this->reconnect();
+        }
+    }
+
+    public function loop()
+    {
+        try {
+            $this->client->loop(0);
+        } catch (MqttClientException $e) {
+            Log::error('(MqttService) Error in MQTT loop: ' . $e->getMessage());
+            $this->reconnect();
         }
     }
 }
