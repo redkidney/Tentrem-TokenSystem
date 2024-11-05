@@ -17,11 +17,21 @@
             25% { transform: translateX(-5px); }
             75% { transform: translateX(5px); }
         }
+
+        .paused {
+            color: #ff8800; /* Orange color to indicate pause */
+        }
+        .pulse-animation {
+            animation: pulse 1s infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+        }
     </style>
 </head>
 <body class="bg-gray-100 min-h-screen flex flex-col justify-center p-4">
 
-    <!-- Flowbite Toast Container -->
     <div id="toast-container" class="fixed top-5 right-5 z-50"></div>
 
     <!-- Split Screen Layout for Two Charging Ports -->
@@ -30,10 +40,12 @@
         @foreach([1, 2] as $port)
         <div id="port{{ $port }}" x-data="chargingStation({{ $port }}, '{{ $ports[$port-1]->status }}', '{{ $ports[$port-1]->start_time }}', '{{ $ports[$port-1]->end_time }}', {{ $ports[$port-1]->duration }})" x-init="init()" class="w-full md:w-1/2 bg-white shadow-lg rounded-lg p-6">
             <h1 class="text-2xl font-bold text-center mb-4" :class="{'bg-gradient-to-r from-blue-500 to-green-500 text-white p-2 rounded': isCharging}">Charging Port {{ $port }}</h1>
-            <form @submit.prevent="handleFormSubmit" x-show="!isValidated && !isCharging" class="space-y-4">
+            
+            <!-- Token Form -->
+            <form @submit.prevent="handleFormSubmit" x-show="!isValidated && !isCharging && !isPaused" class="space-y-4">
                 <label :for="'token'+{{ $port }}" class="block text-sm font-medium text-gray-700">Enter Token:</label>
                 <input :id="'token'+{{ $port }}" type="text" x-model="token" placeholder="5-character token" required maxlength="5"
-                    class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500" readonly>
+                       class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
                 <p class="text-sm text-gray-500">Characters remaining: <span x-text="5 - token.length"></span></p>
                 <div class="grid grid-cols-3 gap-4">
                     @foreach(['1', '2', '3', '4', '5', '6', '7', '8', '9', 'Clear', '0', 'Submit'] as $button)
@@ -56,28 +68,33 @@
                     @endforeach
                 </div>
             </form>
-            <div x-show="isValidated && !isCharging" class="text-center space-y-4">
+
+            <!-- Start Charging Button (Hidden when paused) -->
+            <div x-show="isValidated && !isCharging && !isPaused" class="text-center space-y-4">
                 <p class="text-gray-700">Please plug in the charger for Port {{ $port }} and press start.</p>
                 <button @click="handleStartCharging" class="w-full bg-blue-500 text-white px-4 py-2 rounded-md hover:bg-blue-600 transition duration-300">Start Charging</button>
             </div>
-            <div x-show="isCharging" class="mt-4 p-3 bg-green-100 border border-green-400 text-green-700 rounded">Charging in progress</div>
+
+            <!-- Charging/Paused Status Message -->
+            <div x-show="isCharging || isPaused" class="mt-4 p-3 border rounded" :class="{'bg-green-100 border-green-400 text-green-700': isCharging, 'bg-orange-100 border-orange-400 text-orange-700': isPaused}">
+                <p x-text="isCharging ? 'Charging in progress' : 'Charging paused'" class="text-lg font-semibold"></p>
+            </div>
 
             <!-- Countdown Timer -->
-            <div x-show="isCharging" class="text-center space-y-4 mt-4">
+            <div x-show="isCharging || isPaused" class="text-center space-y-4 mt-4">
                 <div class="relative w-48 h-48 mx-auto">
                     <svg class="w-full h-full" viewBox="0 0 100 100">
                         <circle class="text-gray-200 stroke-current" stroke-width="8" cx="50" cy="50" r="40" fill="transparent" />
                         <circle class="text-green-500 stroke-current" stroke-width="8" stroke-linecap="round"
                                 cx="50" cy="50" r="40" fill="transparent"
                                 :stroke-dasharray="2 * Math.PI * 40"
-                                :stroke-dashoffset="2 * Math.PI * 40 * (1 - remainingTime / (duration * 60))" />
-                    </svg>
+                                :stroke-dashoffset="(2 * Math.PI * 40) * (1 - remainingTime / (duration * 60))" />
+                    </svg>                    
                     <div class="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-center">
                         <p class="text-4xl font-bold" x-text="formatTime(remainingTime)"></p>
                         <p class="text-sm text-gray-500">Remaining</p>
                     </div>
                 </div>
-                <p class="text-lg font-semibold text-green-600">Charging in progress</p>
             </div>
         </div>
         @endforeach
@@ -90,6 +107,7 @@
                 token: '',
                 isValidated: false,
                 isCharging: initialStatus === 'running',
+                isPaused: initialStatus === 'paused',
                 remainingTime: 0,
                 duration: duration,
                 interval: null,
@@ -99,14 +117,19 @@
                     if (this.isCharging) {
                         this.isValidated = true;
                         this.calculateRemainingTime(startTime, endTime);
+                    } else if (this.isPaused) {
+                        this.remainingTime = this.duration * 60;
+                        this.displayPausedTimer();
                     }
 
                     window.Echo.channel('charging-port')
                         .listen('ChargingStatus', (e) => {
                             if (e.status === 'charging_started' && e.port === port) {
-                                if (!this.isCharging) {
-                                    this.handleStartCharging();
-                                }
+                                if (!this.isCharging) this.handleStartCharging();
+                            } else if (e.status === 'charging_paused' && e.port === port) {
+                                this.pauseCountdown(e.remaining_time);
+                            } else if (e.status === 'charging_resumed' && e.port === port) {
+                                this.resumeCountdown(e.remaining_time);
                             }
                         });
                 },
@@ -121,9 +144,7 @@
                     this.remainingTime = Math.max(0, Math.floor(totalDuration - elapsedTime));
                     this.duration = totalDuration / 60;
 
-                    if (this.remainingTime > 0) {
-                        this.startCountdown();
-                    }
+                    if (this.remainingTime > 0) this.startCountdown();
                 },
 
                 startCountdown() {
@@ -138,10 +159,35 @@
                     }, 1000);
                 },
 
+                pauseCountdown(remainingTime) {
+                    if (this.interval) clearInterval(this.interval);
+
+                    this.remainingTime = remainingTime;
+                    this.isCharging = false;
+                    this.isPaused = true;
+
+                    document.getElementById(`port${port}`).classList.add('paused', 'pulse-animation');
+                    this.showToast(`Charging paused. ${this.formatTime(remainingTime)} remaining`, 'warning');
+                },
+
+                resumeCountdown(remainingTime) {
+                    this.remainingTime = remainingTime;
+                    this.isCharging = true;
+                    this.isPaused = false;
+
+                    document.getElementById(`port${port}`).classList.remove('paused', 'pulse-animation');
+
+                    this.startCountdown();
+                    this.showToast(`Charging resumed with ${this.formatTime(this.remainingTime)} remaining`, 'success');
+                },
+
+                displayPausedTimer() {
+                    this.showToast(`Paused - ${this.formatTime(this.remainingTime)} remaining`, 'warning');
+                    document.getElementById(`port${port}`).classList.add('paused', 'pulse-animation');
+                },
+
                 addToToken(number) {
-                    if (this.token.length < 5) {
-                        this.token += number;
-                    }
+                    if (this.token.length < 5) this.token += number;
                 },
 
                 clearToken() {
@@ -190,6 +236,7 @@
                     .then(data => {
                         if (data.success) {
                             this.isCharging = true;
+                            this.isPaused = false;
                             this.isStarting = false;
                             this.remainingTime = this.duration * 60;
                             this.startCountdown();
@@ -219,9 +266,7 @@
                     .then(data => {
                         if (data.success) {
                             this.showToast('Charging session ended successfully', 'success');
-                            setTimeout(() => {
-                                this.resetState();
-                            }, 3000);
+                            setTimeout(() => this.resetState(), 3000);
                         } else {
                             this.showToast('Failed to notify the server.', 'error');
                         }
@@ -236,6 +281,7 @@
                     this.token = '';
                     this.isValidated = false;
                     this.isCharging = false;
+                    this.isPaused = false;
                     this.remainingTime = 0;
                 },
 
@@ -246,37 +292,28 @@
                 },
 
                 showToast(message, type) {
-                    const toast = document.createElement('div');
-                    toast.setAttribute('id', Date.now());
-                    toast.className = `flex items-center w-full max-w-xs p-4 mb-4 text-gray-500 bg-white rounded-lg shadow dark:text-gray-400 dark:bg-gray-800 ${type === 'success' ? 'text-green-500' : 'text-red-500'}`;
-                    toast.setAttribute('role', 'alert');
+                    const toastContainer = document.getElementById('toast-container');
+
+                    // Check if a toast with the same message exists
+                    const existingToast = Array.from(toastContainer.children).find(toast => toast.innerText === message);
+                    if (existingToast) return
                     
+                    const toast = document.createElement('div');
+                    toast.className = `flex items-center w-full max-w-xs p-4 mb-4 text-gray-500 bg-white rounded-lg shadow ${type === 'success' ? 'text-green-500' : 'text-red-500'}`;
                     toast.innerHTML = `
-                        <div class="inline-flex items-center justify-center flex-shrink-0 w-8 h-8 ${type === 'success' ? 'text-green-500 bg-green-100' : 'text-red-500 bg-red-100'} rounded-lg dark:bg-green-800 dark:text-green-200">
+                        <div class="inline-flex items-center justify-center w-8 h-8 ${type === 'success' ? 'bg-green-100' : 'bg-red-100'} rounded-lg">
                             ${type === 'success' 
                                 ? '<svg class="w-5 h-5" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="currentColor" viewBox="0 0 20 20"><path d="M10 .5a9.5 9.5 0 1 0 9.5 9.5A9.51 9.51 0 0 0 10 .5Zm3.707 8.207-4 4a1 1 0 0 1-1.414 0l-2-2a1 1 0 0 1 1.414-1.414L9 10.586l3.293-3.293a1 1 0 0 1 1.414 1.414Z"/></svg>'
                                 : '<svg class="w-5 h-5" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="currentColor" viewBox="0 0 20 20"><path d="M10 .5a9.5 9.5 0 1 0 9.5 9.5A9.51 9.51 0 0 0 10 .5Zm3.707 11.793a1 1 0 1 1-1.414 1.414L10 11.414l-2.293 2.293a1 1 0 0 1-1.414-1.414L8.586 10 6.293 7.707a1 1 0 0 1 1.414-1.414L10 8.586l2.293-2.293a1 1 0 0 1 1.414 1.414L11.414 10l2.293  2.293Z"/></svg>'
                             }
-                            <span class="sr-only">${type === 'success' ? 'Success' : 'Error'} icon</span>
                         </div>
                         <div class="ml-3 text-sm font-normal">${message}</div>
-                        <button type="button" class="ml-auto -mx-1.5 -my-1.5 bg-white text-gray-400 hover:text-gray-900 rounded-lg focus:ring-2 focus:ring-gray-300 p-1.5 hover:bg-gray-100 inline-flex items-center justify-center h-8 w-8 dark:text-gray-500 dark:hover:text-white dark:bg-gray-800 dark:hover:bg-gray-700" data-dismiss-target="#${toast.id}" aria-label="Close">
-                            <span class="sr-only">Close</span>
-                            <svg class="w-3 h-3" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 14 14">
-                                <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m1 1 6 6m0 0 6 6M7 7l6-6M7 7l-6 6"/>
-                            </svg>
-                        </button>
                     `;
-
                     document.getElementById('toast-container').appendChild(toast);
-
-                    setTimeout(() => {
-                        toast.remove();
-                    }, 5000);
+                    setTimeout(() => toast.remove(), 5000);
                 }
             }
         }
-    </script>
-
+    </script>        
 </body>
 </html>

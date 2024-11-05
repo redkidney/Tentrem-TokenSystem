@@ -106,16 +106,24 @@ class TokenController extends Controller
     {
         $ports = Port::all();
 
+        // Resume any running sessions as needed
         $this->resumeSessions();
 
-        foreach ($ports as $port) {
-            if ($port->status === 'running') {
-                // $port->remaining_time = $this->calculateTimeAmount($port->end_time);
+        // Update each port's remaining time based on its status
+        $ports->each(function ($port) {
+            if ($port->status === 'paused') {
+                // If the port is paused, use the pre-existing remaining time
+                $port->remaining_time;
+            } elseif ($port->status === 'running') {
+                // If the port is running, calculate the remaining time
+                $port->remaining_time = $this->calculateTimeAmount($port->end_time);
+
+                // Optionally access additional data if needed
                 $port->start_time;
                 $port->end_time;
                 now();
             }
-        }
+        });
 
         return view('charging_ports', compact('ports'));
     }
@@ -147,13 +155,16 @@ class TokenController extends Controller
 
     public function startCharging(Request $request)
     {
+        $port = Port::find($request->port);
+
+        if (!$port || !in_array($port->status, ['idle', 'paused'])) {
+            // Only allow starting if the port is 'idle' or 'paused'
+            return response()->json(['success' => false, 'message' => 'Invalid or inactive port'], 400);
+        }
+
         $token = Token::where('token', $request->token)->first();
 
-        Log::info("(controller)startCharging method called");
-
-        if (!$token || !$token->used) {
-            return response()->json(['success' => false, 'message' => 'Invalid or unused token'], 400);
-        }
+        Log::info("(controller) startCharging method called");
 
         // Calculate start and end time
         $startTime = now();
@@ -161,7 +172,7 @@ class TokenController extends Controller
 
         // Insert a new charging session record
         ChargingSession::create([
-            'token' => $request->token,
+            'token' => $token->token,
             'charging_port' => $request->port,
             'start_time' => $startTime,
             'end_time' => $endTime,
@@ -170,25 +181,23 @@ class TokenController extends Controller
             'phone' => $token->phone,
         ]);
 
-        // Token::where('token')->update('start_time' -> $startTime);
-
-        // Update port status and end time
-        Port::where('id', $request->port)->update([
+        // Update port status to 'running' and set end time
+        $port->update([
             'status' => 'running',
-            'current_token' => $request->token,
+            'current_token' => $token->token,
             'start_time' => $startTime,
             'end_time' => $endTime,
         ]);
 
         $timeAmount = $this->calculateTimeAmount($endTime);
-        Log::info('(controller)Calculated timeAmount for EndChargingJob: ' . $timeAmount);
+        Log::info('(controller) Calculated timeAmount for EndChargingJob: ' . $timeAmount);
 
         $cacheKey = 'port_' . $request->port . '_job_dispatched';
         try {
-            EndChargingJob::dispatch($token->id, $request->port)
+            EndChargingJob::dispatch($token->token, $request->port)
                 ->onQueue('high_priority')
                 ->delay(now()->addSeconds($timeAmount));
-                Cache::put($cacheKey, true, $timeAmount);
+            Cache::put($cacheKey, true, $timeAmount);
         } catch (\Exception $e) {
             Log::error('Failed to dispatch EndChargingJob', ['error' => $e->getMessage()]);
             return response()->json(['success' => false, 'message' => 'Failed to start charging session'], 500);
@@ -261,6 +270,70 @@ class TokenController extends Controller
                 Cache::forget($cacheKey);
             }
         }
+    }
+
+    public function pauseCharging(int $port)
+    {
+        $portInstance = Port::find($port);
+
+        if ($portInstance && $portInstance->status === 'running') {
+            // Calculate remaining time
+            $remainingTime = $this->calculateTimeAmount($portInstance->end_time);
+
+            // Update port status and save remaining time
+            $portInstance->update([
+                'status' => 'paused',
+                'remaining_time' => $remainingTime,
+            ]);
+
+            Cache::forget('port_' . $port . '_job_dispatched');
+
+            Log::info("Charging for port {$port} paused with {$remainingTime} seconds remaining.");
+
+            return ['success' => true, 'remaining_time' => $remainingTime];
+        }
+
+        Log::warning("Failed to pause charging for port {$port}. Invalid port or not running.");
+        return ['success' => false, 'message' => 'Invalid port or port not running'];
+    }
+
+    public function resumeCharging($portId)
+    {
+        $port = Port::where('id', $portId)->where('status', 'paused')->first();
+
+        if ($port && $port->remaining_time > 0) {
+            $remainingTime = $port->remaining_time;
+            $newEndTime = now()->addSeconds($remainingTime);
+
+            $port->update([
+                'status' => 'running',
+                'end_time' => $newEndTime,
+                'remaining_time' => 0,
+            ]);
+
+            $cacheKey = 'port_' . $port->id . '_job_dispatched';
+
+            if (!Cache::has($cacheKey)) {
+                try {
+                    // Log the current_token before dispatching the job
+                    Log::info("Resuming charging for port {$port->id} with token {$port->current_token}");
+
+                    EndChargingJob::dispatch($port->current_token, $port->id)
+                        ->onQueue('high_priority')
+                        ->delay(now()->addSeconds($remainingTime));
+
+                    Cache::put($cacheKey, true, $remainingTime);
+                    Log::info("Port {$port->id} resumed with remaining time {$remainingTime} seconds.");
+                } catch (\Exception $e) {
+                    Log::error('Failed to dispatch EndChargingJob for port ' . $port->id, ['error' => $e->getMessage()]);
+                    return ['success' => false, 'message' => 'Failed to dispatch EndChargingJob'];
+                }
+            }
+
+            return ['success' => true, 'remaining_time' => $remainingTime];
+        }
+
+        return ['success' => false, 'message' => 'Port not paused or no remaining time'];
     }
 
     protected function sendMQTTCommand($port, $action, $duration = null)

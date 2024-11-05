@@ -9,6 +9,7 @@ use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use App\Services\MqttSubscribeService;
 use App\Services\MqttService;
+use App\Http\Controllers\TokenController;
 use Illuminate\Support\Facades\Log;
 use App\Events\ChargingStatus;
 
@@ -16,9 +17,11 @@ class MqttSubscribeJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
+    protected $tokenController;
+
     public function __construct()
     {
-        // No constructor parameters required
+    
     }
 
     public function handle(MqttSubscribeService $mqttService)
@@ -58,6 +61,15 @@ class MqttSubscribeJob implements ShouldQueue
             case 'charging':
                 $this->handleStartCharging($port);
                 break;
+
+            case 'paused':
+                $this->handlePauseCharging($port);
+                break;
+            
+            case 'resumed':
+                $this->handleResumeCharging($port);
+                break;
+
             default:
                 Log::warning("Unknown status '{$data['status']}' received from port {$port}");
         }
@@ -72,4 +84,29 @@ class MqttSubscribeJob implements ShouldQueue
             Log::error("(MqttSubscribeJob) Error starting charging for port {$port}: " . $e->getMessage());
         }
     }
+
+    protected function handlePauseCharging($port)
+    {
+        $result = app(TokenController::class)->pauseCharging($port);
+
+        if ($result['success']) {
+            Log::info("Successfully paused charging for port {$port} via controller.");
+            event(new ChargingStatus('charging_paused', $port, $result['remaining_time']));
+        } else {
+            Log::warning("Failed to pause charging for port {$port}: " . $result['message']);
+        }
+    }
+
+    protected function handleResumeCharging($port)
+    {
+        $result = app(TokenController::class)->resumeCharging($port);
+
+        if ($result['success']) {
+            event(new ChargingStatus('charging_resumed', $port, $result['remaining_time']));
+            Log::info("Frontend resume event triggered for port {$port} with remaining time {$result['remaining_time']} seconds.");
+        } else {
+            Log::warning("Failed to resume charging for port {$port}: " . $result['message']);
+        }
+    }
+
 }

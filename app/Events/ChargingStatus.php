@@ -6,7 +6,6 @@ use Illuminate\Broadcasting\Channel;
 use Illuminate\Broadcasting\InteractsWithSockets;
 use Illuminate\Broadcasting\PresenceChannel;
 use Illuminate\Broadcasting\PrivateChannel;
-use Illuminate\Contracts\Broadcasting\ShouldBroadcast;
 use Illuminate\Contracts\Broadcasting\ShouldBroadcastNow;
 use Illuminate\Foundation\Events\Dispatchable;
 use Illuminate\Queue\SerializesModels;
@@ -18,13 +17,22 @@ class ChargingStatus implements ShouldBroadcastNow
 
     public $status;
     public $port;
+    public $remaining_time;
 
-    public function __construct($status, $port)
+    /**
+     * Create a new event instance.
+     *
+     * @param string $status
+     * @param int $port
+     * @param int|null $remaining_time Optional remaining time for resume events
+     */
+
+    public function __construct($status, $port, $remaining_time = null)
     {
-        Log::info("ChargingStatus event created with status: {$status} and port: {$port}");
+        Log::info("ChargingStatus event created with status: {$status}, port: {$port}, and remaining_time: " . ($remaining_time ?? 'N/A'));
         $this->status = $status;
         $this->port = $port;
-        Log::info("Event payload: " . json_encode($this));
+        $this->remaining_time = $remaining_time;
     }
 
     public function broadcastOn(): array

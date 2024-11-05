@@ -9,7 +9,7 @@ class Port extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['status', 'current_token', 'start_time', 'end_time'];
+    protected $fillable = ['status', 'current_token', 'remaining_time','start_time', 'end_time'];
 
     // Cast 'start_time' and 'end_time' to Carbon instances
     protected $casts = [
