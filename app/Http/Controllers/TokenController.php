@@ -50,7 +50,7 @@ class TokenController extends Controller
         $expiry = (int) $request->expiry;
 
         // Create the token entry in the database
-        Token::create([
+        $tokenData = Token::create([
             'token' => $token,
             'expiry' => now()->addMinutes($expiry),
             'duration' => $request->duration,
@@ -60,37 +60,18 @@ class TokenController extends Controller
             'phone' => $request->input('phone')
         ]);
 
-        // Try to print the token
-        try {
-            $connector = new WindowsPrintConnector("ZJ-58");
-            $printer = new Printer($connector);
-
-            $header = "Hotel Tentrem Yogyakarta \n";
-            $printer->setJustification(Printer::JUSTIFY_CENTER);
-            $printer->setEmphasis(true);
-            $printer->text($header);
-            $printer->setEmphasis(false);
-            $printer->text("-----------------------------\n");
-            $printer->text("Guest: " . $request->input('guest_name') . "\n");
-            $printer->feed();
-            $printer->setJustification(Printer::JUSTIFY_CENTER);
-            $printer->setTextSize(2, 2);
-            $printer->setEmphasis(true);
-            $printer->text("TOKEN: " . $token . "\n");
-            $printer->setEmphasis(false);
-            $printer->setTextSize(1, 1);
-            $printer->text("Expiry: " . now()->addMinutes($expiry)->format('Y-m-d H:i') . "\n");
-            $printer->text("Duration: " . $request->duration . " minutes\n");
-            $printer->feed(2);
-            $printer->cut();
-            $printer->close();
-
-        } catch (\Exception $e) {
-            Log::error("(controller) Failed to print receipt for token $token. Error: " . $e->getMessage());
-            return redirect()->route('registry')->with('error', 'Failed to print receipt. Token generated successfully.');
-        }
-
-        return redirect()->route('registry')->with('success', "Token $token generated and printed successfully!");
+        // Redirect to /registry with success message and token data in session
+        return redirect()->route('registry')->with([
+            'success' => "Token $token generated successfully!",
+            'tokenData' => [
+                'token' => $tokenData->token,
+                'guest_name' => $tokenData->guest_name,
+                'room_no' => $tokenData->room_no,
+                'phone' => $tokenData->phone,
+                'expiry' => $tokenData->expiry->format('Y-m-d H:i'),
+                'duration' => $tokenData->duration,
+            ],
+        ]);
     }
 
     public function showCustomer($port)
@@ -147,6 +128,7 @@ class TokenController extends Controller
         // Send MQTT command to start charging
         $mqttResponse = $this->sendMQTTCommand($request->port, 'start', $token->duration);
         if (!$mqttResponse['success']) {
+            Log::info("(controller) MQTT start message sent successfully");
             return response()->json(['success' => false, 'message' => $mqttResponse['message']], 500);
         }
 

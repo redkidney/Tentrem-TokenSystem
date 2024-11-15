@@ -4,10 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Registry - Generate Token</title>
-    <!-- Include Tailwind CSS -->
     @vite('resources/css/app.css')
     @vite('resources/js/app.js')
-    <!-- Include Alpine.js -->
     <script src="https://cdn.jsdelivr.net/npm/alpinejs@2.8.2/dist/alpine.js" defer></script>
 </head>
 <body class="bg-gray-100 p-6">
@@ -35,7 +33,7 @@
             <div class="bg-white p-6 rounded-lg shadow-md">
                 <h1 class="text-center text-3xl font-bold mb-6">Generate Charging Token</h1>
 
-                <!-- Success message -->
+                <!-- Success Message -->
                 @if (session('success'))
                     <p class="text-center text-green-600 font-semibold mb-6">{{ session('success') }}</p>
                 @endif
@@ -44,34 +42,28 @@
                 <form method="POST" action="{{ route('generate-token') }}">
                     @csrf
 
-                    <!-- Guest Name Input -->
                     <div class="mb-4">
                         <label for="guest_name" class="block text-gray-700">Guest Name:</label>
                         <input type="text" name="guest_name" required class="w-full p-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-green-500" placeholder="Enter guest name">
                     </div>
 
-                    <!-- Room Number Input -->
                     <div class="mb-4">
                         <label for="room_no" class="block text-gray-700">Room Number:</label>
                         <input type="text" name="room_no" required class="w-full p-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-green-500" placeholder="Enter room number">
                     </div>
 
-                    <!-- Phone Number Input -->
                     <div class="mb-4">
                         <label for="phone" class="block text-gray-700">Phone Number:</label>
-                        <input type="text" name="phone" required class="w-full p-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-green-500" placeholder="Enter phone number">
+                        <input type="text" name="phone" class="w-full p-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-green-500" placeholder="Enter phone number">
                     </div>
 
-                    <!-- Timer Duration Input (default to 60 minutes) -->
                     <div class="mb-4">
                         <label for="duration" class="block text-gray-700">Timer Duration (in minutes):</label>
                         <input type="number" name="duration" value="60" required class="w-full p-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-green-500">
                     </div>
 
-                    <!-- Hidden Expiry Input (default to 720 minutes) -->
                     <input type="hidden" name="expiry" value="720">
 
-                    <!-- Submit Button -->
                     <button type="submit" class="w-full bg-green-500 text-white py-2 rounded-md hover:bg-green-600 active:bg-green-700 disabled:bg-gray-300 transition duration-300 focus:outline-none focus:ring-2 focus:ring-blue-500">Generate Token</button>
                 </form>
             </div>
@@ -107,6 +99,75 @@
             </div>
         </div>
     </div>
+
+    <!-- Client-side Printing Script -->
+    @if(session('tokenData'))
+        <script>
+            document.addEventListener("DOMContentLoaded", function() {
+                const tokenData = @json(session('tokenData'));
+
+                const printWindow = window.open('', '', 'width=300,height=400');
+                printWindow.document.write('<html><head><title>Print Token</title>');
+                printWindow.document.write('<style>');
+                printWindow.document.write(`
+                    body {
+                        font-family: monospace;
+                        text-align: center;
+                        margin: 0;
+                        padding: 0;
+                    }
+                    .header, .footer {
+                        font-weight: bold;
+                        margin-bottom: 10px;
+                    }
+                    .divider {
+                        border-top: 1px dashed #000;
+                        margin: 10px 0;
+                    }
+                    .token {
+                        font-size: 24px;
+                        font-weight: bold;
+                        margin: 20px 0;
+                    }
+                    .details {
+                        font-size: 14px;
+                        line-height: 1.5;
+                    }
+                `);
+                printWindow.document.write('</style></head><body>');
+
+                // Header
+                printWindow.document.write('<div class="header">Hotel Tentrem Yogyakarta</div>');
+                printWindow.document.write('<div class="divider"></div>');
+
+                // Guest and Token Details
+                printWindow.document.write('<div class="details">');
+                printWindow.document.write(`<p>Guest: ${tokenData.guest_name}</p>`);
+                printWindow.document.write(`<p>Room No: ${tokenData.room_no}</p>`);
+                printWindow.document.write('</div>');
+
+                // Token
+                printWindow.document.write('<div class="token">');
+                printWindow.document.write(`TOKEN: ${tokenData.token}`);
+                printWindow.document.write('</div>');
+
+                // Expiry and Duration
+                printWindow.document.write('<div class="details">');
+                printWindow.document.write(`<p>Expiry: ${tokenData.expiry}</p>`);
+                printWindow.document.write(`<p>Duration: ${tokenData.duration} minutes</p>`);
+                printWindow.document.write('</div>');
+
+                // Footer
+                printWindow.document.write('<div class="divider"></div>');
+                printWindow.document.write('<div class="footer">Thank You!</div>');
+
+                printWindow.document.write('</body></html>');
+                printWindow.document.close();
+                printWindow.print();
+                printWindow.close();
+            });
+        </script>
+    @endif
 
 </body>
 </html>

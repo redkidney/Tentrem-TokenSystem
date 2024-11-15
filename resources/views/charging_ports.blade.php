@@ -9,6 +9,14 @@
     @vite('resources/js/app.js')
     <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
     <style>
+        label, .text-sm {
+            font-size: 1.1em;
+        }
+        
+        body {
+            font-size: 1.3em;
+        }
+
         .shake {
             animation: shake 0.3s;
         }
@@ -28,25 +36,57 @@
             0%, 100% { transform: scale(1); }
             50% { transform: scale(1.05); }
         }
+        
+        .grid-container {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 2rem;
+            padding: 2rem;
+        }
+
+        @media (min-width: 768px) {
+            .grid-container {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+
+        .header {
+            grid-column: span 2;
+            text-align: center;
+            margin-bottom: 1.5rem;
+        }
+
+        .logo {
+            width: 80px;
+            height: 80px;
+            margin-bottom: 1rem;
+        }
     </style>
 </head>
 <body class="bg-gray-100 min-h-screen flex flex-col justify-center p-4">
 
+    <div class="header">
+        <img src="{{ asset('images/Asset-1.png') }}" alt="Logo" class="logo mx-auto" style="width: 200px; max-width: 100%; height: auto; margin-bottom: 1.5rem;">
+        <h1 class="text-4xl font-bold text-center tracking-wide">
+            {{ __('EV Charging Station') }}
+        </h1>
+    </div>
+
     <div id="toast-container" class="fixed top-5 right-5 z-50"></div>
 
-    <!-- Split Screen Layout for Two Charging Ports -->
-    <div class="flex flex-col md:flex-row space-y-4 md:space-y-0 md:space-x-4">
+    <!-- Charging Ports Grid Layout -->
+    <div class="grid-container">
 
         @foreach([1, 2] as $port)
-        <div id="port{{ $port }}" x-data="chargingStation({{ $port }}, '{{ $ports[$port-1]->status }}', '{{ $ports[$port-1]->start_time }}', '{{ $ports[$port-1]->end_time }}', {{ $ports[$port-1]->duration }})" x-init="init()" class="w-full md:w-1/2 bg-white shadow-lg rounded-lg p-6">
-            <h1 class="text-2xl font-bold text-center mb-4" :class="{'bg-gradient-to-r from-blue-500 to-green-500 text-white p-2 rounded': isCharging}">Charging Port {{ $port }}</h1>
-            
+        <div id="port{{ $port }}" x-data="chargingStation({{ $port }}, '{{ $ports[$port-1]->status }}', '{{ $ports[$port-1]->start_time }}', '{{ $ports[$port-1]->end_time }}', {{ $ports[$port-1]->duration }})" x-init="init()" class="bg-white shadow-lg rounded-lg p-6">
+            <h1 class="text-3xl font-bold text-center mb-4" :class="{'bg-gradient-to-r from-blue-500 to-green-500 text-white p-2 rounded': isCharging}">Station {{ $port }}</h1>
+
             <!-- Token Form -->
             <form @submit.prevent="handleFormSubmit" x-show="!isValidated && !isCharging && !isPaused" class="space-y-4">
-                <label :for="'token'+{{ $port }}" class="block text-sm font-medium text-gray-700">Enter Token:</label>
+                <label :for="'token'+{{ $port }}" class="block text-lg font-medium text-gray-700">Enter Token:</label>
                 <input :id="'token'+{{ $port }}" type="text" x-model="token" placeholder="5-character token" required maxlength="5"
                        class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
-                <p class="text-sm text-gray-500">Characters remaining: <span x-text="5 - token.length"></span></p>
+                <p class="text-base text-gray-500">Characters remaining: <span x-text="5 - token.length"></span></p>
                 <div class="grid grid-cols-3 gap-4">
                     @foreach(['1', '2', '3', '4', '5', '6', '7', '8', '9', 'Clear', '0', 'Submit'] as $button)
                         @if($button === 'Clear')
@@ -92,7 +132,7 @@
                     </svg>                    
                     <div class="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-center">
                         <p class="text-4xl font-bold" x-text="formatTime(remainingTime)"></p>
-                        <p class="text-sm text-gray-500">Remaining</p>
+                        <p class="text-base text-gray-500">Remaining</p>
                     </div>
                 </div>
             </div>
