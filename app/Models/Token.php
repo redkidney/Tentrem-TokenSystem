@@ -9,12 +9,17 @@ class Token extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['token', 'start_time', 'expiry', 'duration', 'used', 'guest_name', 'room_no', 'phone'];
+    protected $fillable = ['token', 'start_time', 'expiry', 'duration', 'used', 'guest_name', 'room_no', 'phone', 'voucher'];
 
     // Cast 'expiry' to a Carbon date instance
     protected $casts = [
         'expiry' => 'datetime',
         'start_time' => 'datetime'
     ];
+
+    public function voucher()
+    {
+        return $this->belongsTo(Voucher::class, 'voucher', 'id');
+    }
 }
 

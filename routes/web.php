@@ -2,6 +2,8 @@
 
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\TokenController;
+use App\Http\Controllers\VoucherController;
+use App\DataTables\ChargingSessionsDataTable;
 use App\Events\ChargingStatus;
 /*
 |--------------------------------------------------------------------------
@@ -43,4 +45,10 @@ Route::get('/test-event', function() {
     event(new ChargingStatus('charging_started', 1));
     return 'Event dispatched';
 });
+
+Route::get('/vouchers', [VoucherController::class, 'create'])->name('vouchers.create');
+Route::post('/vouchers-store', [VoucherController::class, 'store'])->name('vouchers.store');
+
+Route::get('/registry/charging-sessions', [TokenController::class, 'getChargingSessions'])->name('registry.charging-sessions');
+
 

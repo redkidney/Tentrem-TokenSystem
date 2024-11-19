@@ -9,7 +9,7 @@ class ChargingSession extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['token', 'charging_port', 'start_time', 'end_time', 'guest_name', 'room_no', 'phone'];
+    protected $fillable = ['token', 'charging_port', 'start_time', 'end_time', 'guest_name', 'room_no', 'phone','voucher'];
 
     // Cast 'start_time' and 'end_time' to Carbon instances
     protected $casts = [
@@ -21,5 +21,10 @@ class ChargingSession extends Model
     public function token()
     {
         return $this->belongsTo(Token::class);
+    }
+
+    public function voucher()
+    {
+        return $this->belongsTo(Voucher::class, 'voucher', 'id');
     }
 }
