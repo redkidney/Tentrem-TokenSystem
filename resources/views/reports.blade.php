@@ -81,13 +81,15 @@
                 columns: [
                     { data: "id", name: "id", title: "Session ID" },
                     { data: "guest_name", name: "guest_name", title: "Guest Name" },
+                    { data: "room_no", name: "room_no", title: "Room Number" },
+                    { data: "phone", name: "phone", title: "Phone Number" },
                     { data: "charging_port", name: "charging_port", title: "Port" },
                     { data: "voucher_name", name: "voucher_name", title: "Voucher Name" },
                     { data: "duration", name: "duration", title: "Duration" },
                     { data: "price", name: "price", title: "Price" },
                     { data: "updated_at", name: "updated_at", title: "Date" },
                 ],
-                order: [[6, "desc"]],
+                order: [[8, "desc"]],
             });
 
             window.filterTable = function () {

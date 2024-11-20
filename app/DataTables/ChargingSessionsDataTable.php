@@ -54,7 +54,7 @@ class ChargingSessionsDataTable extends DataTable
             ->setTableId('charging-sessions-table')
             ->columns($this->getColumns())
             ->minifiedAjax(route('reports.charging-sessions'))
-            ->orderBy(6, 'desc')
+            ->orderBy(8, 'desc')
             ->selectStyleSingle()
             ->buttons([
                 'excel',
@@ -71,6 +71,8 @@ class ChargingSessionsDataTable extends DataTable
         return [
             Column::make('id')->title('Session ID'),
             Column::make('guest_name')->title('Guest Name'),
+            Column::make('room_no')->title('Room Number'),
+            Column::make('phone')->title('Phone Number'),
             Column::make('charging_port')->title('Port'),
             Column::make('voucher_name')->title('Voucher Name')->orderable(false)->searchable(false),
             Column::make('duration')->title('Duration')->orderable(false)->searchable(false),
