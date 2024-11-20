@@ -20,6 +20,10 @@
                 <form method="GET" action="{{ route('registry') }}">
                     <button type="submit" class="block w-full text-left px-4 py-2 text-gray-700 hover:bg-blue-100">Generate Token</button>
                 </form>
+                <form method="GET" action="{{ route('reports.charging-sessions') }}">
+                    @csrf
+                    <button type="submit" class="block w-full text-left px-4 py-2 text-gray-700 hover:bg-blue-100">Reports</button>
+                </form>
                 <form method="POST" action="{{ route('logout') }}">
                     @csrf
                     <button type="submit" class="block w-full text-left px-4 py-2 text-gray-700 hover:bg-red-100">Logout</button>

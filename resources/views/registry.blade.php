@@ -8,6 +8,7 @@
     @vite('resources/js/app.js')
     <script src="https://cdn.jsdelivr.net/npm/alpinejs@2.8.2/dist/alpine.js" defer></script>
 </head>
+
 <body class="bg-gray-100 p-6">
 
     <!-- Profile Icon with Dropdown -->
@@ -17,6 +18,14 @@
                 {{ Auth::user()->name[0] }}
             </button>
             <div x-show="open" @click.away="open = false" class="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg py-2 z-50">
+                <form method="GET" action="{{ route('vouchers.create') }}">
+                    @csrf
+                    <button type="submit" class="block w-full text-left px-4 py-2 text-gray-700 hover:bg-blue-100">Create Voucher</button>
+                </form>
+                <form method="GET" action="{{ route('reports.charging-sessions') }}">
+                    @csrf
+                    <button type="submit" class="block w-full text-left px-4 py-2 text-gray-700 hover:bg-blue-100">Reports</button>
+                </form>
                 <form method="POST" action="{{ route('logout') }}">
                     @csrf
                     <button type="submit" class="block w-full text-left px-4 py-2 text-gray-700 hover:bg-red-100">Logout</button>
@@ -25,11 +34,11 @@
         </div>
     </div>
 
-    <!-- Page Content with Grid Layout -->
+    <!-- Page Content -->
     <div class="max-w-6xl mx-auto mt-12">
         <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-            
-            <!-- Token Generation Form -->
+
+            <!-- Token Generation Form (Left Side) -->
             <div class="bg-white p-6 rounded-lg shadow-md">
                 <h1 class="text-center text-3xl font-bold mb-6">Generate Charging Token</h1>
 
@@ -41,61 +50,70 @@
                 <!-- Token Generation Form -->
                 <form method="POST" action="{{ route('generate-token') }}">
                     @csrf
-
                     <div class="mb-4">
                         <label for="guest_name" class="block text-gray-700">Guest Name:</label>
-                        <input type="text" name="guest_name" required class="w-full p-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-green-500" placeholder="Enter guest name">
+                        <input type="text" name="guest_name" required
+                               class="w-full p-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
+                               placeholder="Enter guest name">
                     </div>
 
                     <div class="mb-4">
                         <label for="room_no" class="block text-gray-700">Room Number:</label>
-                        <input type="text" name="room_no" required class="w-full p-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-green-500" placeholder="Enter room number">
+                        <input type="text" name="room_no" required
+                               class="w-full p-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
+                               placeholder="Enter room number">
                     </div>
 
                     <div class="mb-4">
                         <label for="phone" class="block text-gray-700">Phone Number:</label>
-                        <input type="text" name="phone" class="w-full p-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-green-500" placeholder="Enter phone number">
+                        <input type="text" name="phone"
+                               class="w-full p-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
+                               placeholder="Enter phone number">
                     </div>
 
                     <div class="mb-4">
-                        <label for="duration" class="block text-gray-700">Timer Duration (in minutes):</label>
-                        <input type="number" name="duration" value="60" required class="w-full p-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-green-500">
+                        <label for="voucher_id" class="block text-gray-700">Voucher:</label>
+                        <select name="voucher_id" required
+                                class="w-full p-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-green-500">
+                            <option value="" disabled selected>Select a voucher</option>
+                            @foreach($vouchers as $voucher)
+                                <option value="{{ $voucher->id }}">
+                                    {{ $voucher->voucher_name }} - {{ $voucher->duration }} min
+                                </option>
+                            @endforeach
+                        </select>
                     </div>
 
-                    <input type="hidden" name="expiry" value="720">
-
-                    <button type="submit" class="w-full bg-green-500 text-white py-2 rounded-md hover:bg-green-600 active:bg-green-700 disabled:bg-gray-300 transition duration-300 focus:outline-none focus:ring-2 focus:ring-blue-500">Generate Token</button>
+                    <button type="submit"
+                            class="w-full bg-green-500 text-white py-2 rounded-md hover:bg-green-600 active:bg-green-700 disabled:bg-gray-300 transition duration-300 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        Generate Token
+                    </button>
                 </form>
             </div>
 
-            <!-- Generated Tokens Table -->
+            <!-- Generated Tokens Section (Right Side) -->
             <div class="bg-white p-6 rounded-lg shadow-md">
                 <h2 class="text-center text-2xl font-bold mb-6">Generated Tokens</h2>
-                <div class="overflow-x-auto">
-                    <table class="min-w-full bg-white rounded-lg shadow-md">
-                        <thead>
-                            <tr>
-                                <th class="px-4 py-2 bg-gray-100 text-gray-700 text-center">Token</th>
-                                <th class="px-4 py-2 bg-gray-100 text-gray-700 text-center">Expiry</th>
-                                <th class="px-4 py-2 bg-gray-100 text-gray-700 text-center">Duration</th>
-                                <th class="px-4 py-2 bg-gray-100 text-gray-700 text-center">Used</th>
+                <table class="min-w-full bg-white border border-gray-300 rounded-lg shadow-md">
+                    <thead>
+                        <tr class="bg-gray-100 text-gray-700">
+                            <th class="px-4 py-2 text-center">Token</th>
+                            <th class="px-4 py-2 text-center">Expiry</th>
+                            <th class="px-4 py-2 text-center">Duration</th>
+                            <th class="px-4 py-2 text-center">Used</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach($tokens as $token)
+                            <tr class="border-b">
+                                <td class="px-4 py-2 text-center">{{ $token->token }}</td>
+                                <td class="px-4 py-2 text-center">{{ $token->expiry->format('Y-m-d H:i') }}</td>
+                                <td class="px-4 py-2 text-center">{{ $token->duration }} min</td>
+                                <td class="px-4 py-2 text-center">{{ $token->used ? 'Yes' : 'No' }}</td>
                             </tr>
-                        </thead>
-                        <tbody>
-                            @foreach($tokens as $token)
-                                <tr class="border-b">
-                                    <td class="px-4 py-2 text-center">{{ $token->token }}</td>
-                                    <td class="px-4 py-2 text-center">{{ $token->expiry->format('Y-m-d H:i') }}</td>
-                                    <td class="px-4 py-2 text-center">{{ $token->duration }} min</td>
-                                    <td class="px-4 py-2 text-center">{{ $token->used ? 'Yes' : 'No' }}</td>
-                                </tr>
-                            @endforeach
-                        </tbody>
-                    </table>
-                    @if($tokens->isEmpty())
-                        <p class="text-center mt-4 text-gray-500">No tokens have been generated yet.</p>
-                    @endif
-                </div>
+                        @endforeach
+                    </tbody>
+                </table>
             </div>
         </div>
     </div>
@@ -168,6 +186,5 @@
             });
         </script>
     @endif
-
 </body>
 </html>

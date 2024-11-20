@@ -5,6 +5,7 @@
  */
 
 import './bootstrap';
+import 'laravel-datatables-vite';
 import 'flowbite';
 import { createApp } from 'vue';
 

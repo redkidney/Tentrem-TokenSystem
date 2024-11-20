@@ -3,16 +3,20 @@
 namespace App\Http\Controllers;
 
 use Illuminate\Support\Facades\Auth;
+
 use App\Models\Token;
 use App\Models\ChargingSession;
 use App\Models\Port;
-use Illuminate\Http\Request;
+use App\Models\Voucher;
+use App\DataTables\ChargingSessionsDataTable;
+
 use App\Services\MqttPublishService;
 use App\Jobs\EndChargingJob;
+
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
-use Mike42\Escpos\Printer;
-use Mike42\Escpos\PrintConnectors\WindowsPrintConnector;
+use Yajra\DataTables\Facades\DataTables;
 
 class TokenController extends Controller
 {
@@ -23,46 +27,47 @@ class TokenController extends Controller
         $this->mqtt = $mqtt;
     }
 
-    // Show registry page with the latest 10 tokens
     public function showRegistry()
     {
         $tokens = Token::latest()->take(10)->get();
+        $vouchers = Voucher::all();
         $charging_sessions = ChargingSession::all();
 
-        return view('registry', compact('tokens', 'charging_sessions'));
+        return view('registry', compact('tokens', 'charging_sessions', 'vouchers'));
     }
 
     public function generateToken(Request $request)
     {
         $request->validate([
-            'expiry' => 'required|integer|min:1|max:1440',
-            'duration' => 'required|integer|min:1|max:1440',
+            'voucher_id' => 'required|exists:vouchers,id',
             'guest_name' => 'required|string|max:255',
             'room_no' => 'required|string|max:50',
             'phone' => 'nullable|string|max:20',
         ]);
+
+        // Retrieve selected voucher details
+        $voucher = Voucher::find($request->voucher_id);
 
         // Generate a unique 5-digit token
         do {
             $token = mt_rand(10000, 99999);
         } while (Token::where('token', $token)->exists());
 
-        $expiry = (int) $request->expiry;
-
         // Create the token entry in the database
         $tokenData = Token::create([
             'token' => $token,
-            'expiry' => now()->addMinutes($expiry),
-            'duration' => $request->duration,
+            'expiry' => now()->addMinutes($voucher->duration),
+            'duration' => $voucher->duration,
             'used' => false,
             'guest_name' => $request->input('guest_name'),
             'room_no' => $request->input('room_no'),
-            'phone' => $request->input('phone')
+            'phone' => $request->input('phone'),
+            'voucher' => $voucher->id,
         ]);
 
-        // Redirect to /registry with success message and token data in session
+        // Redirect with success message and token data
         return redirect()->route('registry')->with([
-            'success' => "Token $token generated successfully!",
+            'success' => "Token $token generated successfully using voucher: {$voucher->voucher_name}!",
             'tokenData' => [
                 'token' => $tokenData->token,
                 'guest_name' => $tokenData->guest_name,
@@ -146,21 +151,30 @@ class TokenController extends Controller
 
         $token = Token::where('token', $request->token)->first();
 
+        if (!$token) {
+            return response()->json(['success' => false, 'message' => 'Invalid token'], 400);
+        }
+
+        // Retrieve voucher
+        $voucher = Voucher::find($token->voucher);
+        if (!$voucher) {
+            return response()->json(['success' => false, 'message' => 'Voucher not found for the token'], 400);
+        }
+
         Log::info("(controller) startCharging method called");
 
         // Calculate start and end time
         $startTime = now();
-        $endTime = (clone $startTime)->addMinutes($token->duration);
+        $endTime = (clone $startTime)->addMinutes($voucher->duration);
 
         // Insert a new charging session record
         ChargingSession::create([
             'token' => $token->token,
             'charging_port' => $request->port,
-            'start_time' => $startTime,
-            'end_time' => $endTime,
             'guest_name' => $token->guest_name,
             'room_no' => $token->room_no,
             'phone' => $token->phone,
+            'voucher' => $voucher->id,
         ]);
 
         // Update port status to 'running' and set end time
