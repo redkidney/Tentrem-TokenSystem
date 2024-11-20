@@ -32,6 +32,10 @@
         </div>
     </div>
 
+    <div class="header">
+        <img src="{{ asset('images/Asset-1.png') }}" alt="Logo" class="logo mx-auto" style="width: 200px; max-width: 100%; height: auto; margin-bottom: 1.5rem;">
+    </div>
+
     <!-- Page Content with Grid Layout -->
     <div class="max-w-6xl mx-auto mt-12">
         <div class="grid grid-cols-1 md:grid-cols-2 gap-6">

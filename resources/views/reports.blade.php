@@ -36,6 +36,10 @@
         </div>
     </div>
 
+    <div class="header">
+        <img src="{{ asset('images/Asset-1.png') }}" alt="Logo" class="logo mx-auto" style="width: 200px; max-width: 100%; height: auto; margin-bottom: 1.5rem;">
+    </div>
+
     <div class="max-w-6xl mx-auto mt-12 bg-white p-6 rounded-lg shadow-md">
         <h2 class="text-center text-2xl font-bold mb-6">Charging Sessions Report</h2>
 

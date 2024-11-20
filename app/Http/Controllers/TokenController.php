@@ -31,9 +31,8 @@ class TokenController extends Controller
     {
         $tokens = Token::latest()->take(10)->get();
         $vouchers = Voucher::all();
-        $charging_sessions = ChargingSession::all();
 
-        return view('registry', compact('tokens', 'charging_sessions', 'vouchers'));
+        return view('registry', compact('tokens',  'vouchers'));
     }
 
     public function generateToken(Request $request)
