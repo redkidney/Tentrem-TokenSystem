@@ -51,5 +51,7 @@ Route::get('/vouchers', [VoucherController::class, 'create'])->name('vouchers.cr
 Route::post('/vouchers-store', [VoucherController::class, 'store'])->name('vouchers.store')->middleware('auth');
 
 Route::get('/reports', [ReportController::class, 'index'])->name('reports.charging-sessions')->middleware('auth');
+Route::get('/reports/export/csv', [ReportController::class, 'exportCsv'])->name('reports.export.csv');
+
 
 

@@ -52,4 +52,57 @@ class ReportController extends Controller
             })
             ->make(true);
     }
+
+    public function exportCsv(Request $request)
+    {
+        // Apply date filters
+        $query = ChargingSession::query()->with('voucher');
+
+        if ($request->has('start_date') && $request->start_date) {
+            $query->where('updated_at', '>=', $request->start_date . ' 00:00:00');
+        }
+
+        if ($request->has('end_date') && $request->end_date) {
+            $query->where('updated_at', '<=', $request->end_date . ' 23:59:59');
+        }
+
+        // Fetch the filtered data
+        $sessions = $query->get();
+
+        // Prepare CSV data
+        $csvData = [];
+        $csvData[] = ['Session ID', 'Guest Name', 'Room Number', 'Phone Number', 'Port', 'Voucher Name', 'Duration', 'Price', 'Date'];
+
+        foreach ($sessions as $session) {
+            $csvData[] = [
+                $session->id,
+                $session->guest_name,
+                $session->room_no,
+                $session->phone,
+                $session->charging_port,
+                $session->voucher ? $session->voucher->voucher_name : 'N/A',
+                $session->voucher ? $session->voucher->duration . ' min' : 'N/A',
+                $session->voucher ? 'Rp ' . number_format($session->voucher->price, 2, ',', '.') : 'N/A',
+                $session->updated_at ? $session->updated_at->format('Y-m-d H:i') : 'N/A',
+            ];
+        }
+
+        // Output CSV
+        $filename = 'ChargingSessions_' . now()->format('YmdHis') . '.csv';
+        $headers = [
+            'Content-Type' => 'text/csv',
+            'Content-Disposition' => "attachment; filename=\"$filename\"",
+        ];
+
+        $callback = function () use ($csvData) {
+            $file = fopen('php://output', 'w');
+            foreach ($csvData as $row) {
+                fputcsv($file, $row);
+            }
+            fclose($file);
+        };
+
+        return response()->stream($callback, 200, $headers);
+    }
+
 }

@@ -63,6 +63,18 @@
         <div>
             {{ $dataTable->table() }}
         </div>
+
+        <!-- CSV Export Button -->
+        <div class="mt-4 text-right">
+            <form action="{{ route('reports.export.csv') }}" method="GET">
+                <input type="hidden" id="csv_start_date" name="start_date">
+                <input type="hidden" id="csv_end_date" name="end_date">
+                <button type="submit" 
+                    class="bg-green-500 text-white py-2 px-4 rounded-md hover:bg-green-600 active:bg-green-700 transition duration-300 focus:outline-none focus:ring-2 focus:ring-green-500">
+                    Export to CSV
+                </button>
+            </form>
+        </div>
     </div>
 
     @push('scripts')
@@ -96,6 +108,21 @@
                 console.log('Filter button clicked'); // Debugging
                 table.draw();
             };
+        });
+
+        document.addEventListener("DOMContentLoaded", function () {
+            const startDateInput = document.getElementById("start_date");
+            const endDateInput = document.getElementById("end_date");
+            const csvStartDateInput = document.getElementById("csv_start_date");
+            const csvEndDateInput = document.getElementById("csv_end_date");
+
+            function syncFilterDates() {
+                csvStartDateInput.value = startDateInput.value;
+                csvEndDateInput.value = endDateInput.value;
+            }
+
+            startDateInput.addEventListener("change", syncFilterDates);
+            endDateInput.addEventListener("change", syncFilterDates);
         });
     </script>
     @endpush
