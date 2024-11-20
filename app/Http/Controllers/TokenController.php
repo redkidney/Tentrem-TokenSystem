@@ -123,8 +123,19 @@ class TokenController extends Controller
 
         $token = Token::where('token', $request->token)->first();
 
-        if (!$token || $token->used || $token->expiry < now()) {
-            return response()->json(['success' => false, 'message' => 'Invalid or expired token'], 400);
+        // Check if the token is invalid
+        if (!$token) {
+            return response()->json(['success' => false, 'message' => 'Token is incorrect'], 400);
+        }
+
+        // Check if the token is expired
+        if ($token->expiry < now()) {
+            return response()->json(['success' => false, 'message' => 'Token has expired'], 400);
+        }
+
+        // Check if the token is already used
+        if ($token->used) {
+            return response()->json(['success' => false, 'message' => 'Token has already been used'], 400);
         }
 
         // Mark the token as used
@@ -139,6 +150,7 @@ class TokenController extends Controller
 
         return response()->json(['success' => true, 'duration' => $token->duration]);
     }
+
 
     public function startCharging(Request $request)
     {
