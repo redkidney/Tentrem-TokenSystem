@@ -16,13 +16,14 @@ class ChargingSessionsDataTable extends DataTable
         return (new EloquentDataTable($query))
             ->setRowId('id') // Set row ID for better table rendering
             ->addColumn('voucher_name', function ($row) {
-                return $row->voucher ? $row->voucher->voucher_name : 'N/A';
+                \Log::info('Row Data:', ['row' => $row]);
+                return is_object($row->voucher) ? $row->voucher->voucher_name : 'N/A';
             })
             ->addColumn('duration', function ($row) {
-                return $row->voucher ? $row->voucher->duration . ' min' : 'N/A';
+                return is_object($row->voucher) ? $row->voucher->duration . ' min' : 'N/A';
             })
             ->addColumn('price', function ($row) {
-                return $row->voucher ? 'Rp ' . number_format($row->voucher->price, 2, ',', '.') : 'N/A';
+                return is_object($row->voucher) ? 'Rp ' . number_format($row->voucher->price, 2, ',', '.') : 'N/A';
             })
             ->editColumn('updated_at', function ($row) {
                 // Format the date
@@ -43,6 +44,7 @@ class ChargingSessionsDataTable extends DataTable
             $query->where('updated_at', '<=', $endDate . ' 23:59:59');
         }
 
+        // Log the query
         \Log::info('Generated Query:', ['query' => $query->toSql(), 'bindings' => $query->getBindings()]);
 
         return $query;

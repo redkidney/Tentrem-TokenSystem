@@ -9,7 +9,16 @@ class ChargingSession extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['token', 'charging_port', 'start_time', 'end_time', 'guest_name', 'room_no', 'phone','voucher'];
+    protected $fillable = [
+        'token', 
+        'charging_port', 
+        'start_time', 
+        'end_time', 
+        'guest_name', 
+        'room_no', 
+        'phone',
+        'voucher'
+    ];
 
     // Cast 'start_time' and 'end_time' to Carbon instances
     protected $casts = [

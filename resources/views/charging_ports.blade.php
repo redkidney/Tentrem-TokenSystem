@@ -118,6 +118,15 @@
             <!-- Charging/Paused Status Message -->
             <div x-show="isCharging || isPaused" class="mt-4 p-3 border rounded" :class="{'bg-green-100 border-green-400 text-green-700': isCharging, 'bg-orange-100 border-orange-400 text-orange-700': isPaused}">
                 <p x-text="isCharging ? 'Charging in progress' : 'Charging paused'" class="text-lg font-semibold"></p>
+
+                <!-- Cancel Charging Button -->
+                <form @submit.prevent="handleCancelCharging" method="POST">
+                    @csrf
+                    <input type="hidden" name="token" :value="token">
+                    <button type="submit" class="mt-4 w-full bg-red-500 text-white px-4 py-2 rounded-md hover:bg-red-600 transition duration-300">
+                        Cancel Charging
+                    </button>
+                </form>
             </div>
 
             <!-- Countdown Timer -->
@@ -314,6 +323,36 @@
                     .catch(error => {
                         console.error('Error:', error);
                         this.showToast('Error ending the session.', 'error');
+                    });
+                },
+
+                handleCancelCharging() {
+                    if (!confirm('Are you sure you want to cancel the charging session?')) {
+                        return;
+                    }
+
+                    fetch(`/customer/${port}/cancel`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').getAttribute('content')
+                        }
+                    })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.success) {
+                            this.isCharging = false;
+                            this.isPaused = false;
+                            this.token = '';
+                            this.remainingTime = 0;
+                            this.showToast('Charging session canceled successfully', 'success');
+                        } else {
+                            this.showToast(data.message, 'error');
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error:', error);
+                        this.showToast('An error occurred while canceling the session.', 'error');
                     });
                 },
 

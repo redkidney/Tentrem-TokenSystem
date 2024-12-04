@@ -18,8 +18,14 @@ use App\Events\ChargingStatus;
 */
 
 Route::get('/', function () {
-    return view('welcome');
+    if (Auth::check()) {
+        return redirect()->route('dashboard'); // Redirect to the dashboard if authenticated
+    } else {
+        return redirect()->route('login'); // Redirect to the login page if not authenticated
+    }
 });
+
+Route::get('/dashboard', [App\Http\Controllers\HomeController::class, 'index'])->name('dashboard')->middleware('auth');
 
 // Registry routes
 Route::get('/registry', [TokenController::class, 'showRegistry'])->name('registry')->middleware('auth');
@@ -34,9 +40,7 @@ Route::get('/charging-ports', [TokenController::class, 'showBoth'])->name('ports
 Route::post('/start-charging', [TokenController::class, 'startCharging'])->name('start-charging');
 Route::post('/customer/{port}/end', [TokenController::class, 'endCharging'])->name('end-charging');
 
-// // New route for fetching port status as JSON
-// Route::get('/customer/{port}/status', [TokenController::class, 'getPortStatus'])->name('customer.port-status');
-
+Route::post('/customer/{port}/cancel', [TokenController::class, 'cancelCharging'])->name('customer.cancel');
 Auth::routes();
 
 Route::get('/home', [App\Http\Controllers\HomeController::class, 'index'])->name('home');
@@ -52,6 +56,10 @@ Route::post('/vouchers-store', [VoucherController::class, 'store'])->name('vouch
 
 Route::get('/reports', [ReportController::class, 'index'])->name('reports.charging-sessions')->middleware('auth');
 Route::get('/reports/export/csv', [ReportController::class, 'exportCsv'])->name('reports.export.csv');
+
+Auth::routes();
+
+Route::get('/home', [App\Http\Controllers\HomeController::class, 'index'])->name('home');
 
 
 

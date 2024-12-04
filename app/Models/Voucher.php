@@ -14,4 +14,9 @@ class Voucher extends Model
         'duration',
         'price',
     ];
+
+    public function chargingSessions()
+    {
+        return $this->hasMany(ChargingSession::class, 'voucher', 'id');
+    }
 }

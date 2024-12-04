@@ -40,8 +40,8 @@ class TokenController extends Controller
         $request->validate([
             'voucher_id' => 'required|exists:vouchers,id',
             'guest_name' => 'required|string|max:255',
-            'room_no' => 'required|string|max:50',
-            'phone' => 'nullable|string|max:20',
+            // 'room_no' => 'required|string|max:50',
+            // 'phone' => 'nullable|string|max:20',
         ]);
 
         // Retrieve selected voucher details
@@ -55,13 +55,14 @@ class TokenController extends Controller
         // Create the token entry in the database
         $tokenData = Token::create([
             'token' => $token,
-            'expiry' => now()->addMinutes($voucher->duration),
+            'expiry' => now()->addMinutes(1440),
             'duration' => $voucher->duration,
             'used' => false,
             'guest_name' => $request->input('guest_name'),
             'room_no' => $request->input('room_no'),
             'phone' => $request->input('phone'),
             'voucher' => $voucher->id,
+            'car_type' => $request->input('car_type'),
         ]);
 
         // Redirect with success message and token data
@@ -74,6 +75,8 @@ class TokenController extends Controller
                 'phone' => $tokenData->phone,
                 'expiry' => $tokenData->expiry->format('Y-m-d H:i'),
                 'duration' => $tokenData->duration,
+                'price' => number_format($voucher->price, 2),
+                'voucher_id' => $voucher->id,
             ],
         ]);
     }
@@ -137,8 +140,7 @@ class TokenController extends Controller
             return response()->json(['success' => false, 'message' => 'Token has already been used'], 400);
         }
 
-        // Mark the token as used
-        $token->update(['used' => true]);
+        
 
         // Send MQTT command to start charging
         $mqttResponse = $this->sendMQTTCommand($request->port, 'start', $token->duration);
@@ -209,6 +211,9 @@ class TokenController extends Controller
             Log::error('Failed to dispatch EndChargingJob', ['error' => $e->getMessage()]);
             return response()->json(['success' => false, 'message' => 'Failed to start charging session'], 500);
         }
+        
+        // Mark the token as used
+        $token->update(['used' => true]);
 
         return response()->json(['success' => true, 'message' => 'Charging started']);
     }
@@ -237,8 +242,75 @@ class TokenController extends Controller
             return response()->json(['success' => true]);
 
         } catch (\Exception $e) {
-            Log::error("(controller) Failed to send MQTT command to end charging for port $port: " . $e->getMessage());
             return response()->json(['success' => false, 'message' => 'Failed to stop charging'], 500);
+        }
+    }
+
+    public function cancelCharging(Request $request, $port)
+    {
+        try {
+            // Validate the port
+            if (!in_array($port, [1, 2])) {
+                return response()->json(['success' => false, 'message' => 'Invalid port'], 400);
+            }
+
+            // Fetch the current token from the ports table
+            $portData = Port::where('id', $port)->first();
+
+            if (!$portData || !$portData->current_token) {
+                return response()->json(['success' => false, 'message' => 'No active charging session found for this port'], 404);
+            }
+
+            $token = $portData->current_token;
+
+            // Validate that the token exists in the tokens table
+            $tokenData = Token::where('token', $token)->first();
+            if (!$tokenData) {
+                return response()->json(['success' => false, 'message' => 'Invalid token associated with this port'], 404);
+            }
+
+            // Attempt to end the charging session
+            try {
+                $this->endCharging($request, $port); // Assuming this method handles ending the session
+            } catch (\Exception $e) {
+                Log::error('Failed to end charging session', [
+                    'port' => $port,
+                    'token' => $token,
+                    'error' => $e->getMessage(),
+                ]);
+                return response()->json(['success' => false, 'message' => 'Failed to end charging session'], 500);
+            }
+
+            // Dispatch the EndChargingJob
+            $cacheKey = 'port_' . $port . '_job_dispatched';
+            $timeAmount = $this->calculateTimeAmount(now()); // Assuming this calculates remaining time
+
+            try {
+                EndChargingJob::dispatch($token, $port)
+                    ->onQueue('high_priority');
+                Cache::put($cacheKey, true, $timeAmount);
+            } catch (\Exception $e) {
+                Log::error('Failed to dispatch EndChargingJob', [
+                    'port' => $port,
+                    'token' => $token,
+                    'error' => $e->getMessage(),
+                ]);
+                return response()->json(['success' => false, 'message' => 'Failed to cancel charging session'], 500);
+            }
+
+            // Successful cancellation
+            Log::info('Charging session canceled successfully', [
+                'port' => $port,
+                'token' => $token,
+            ]);
+            return response()->json(['success' => true, 'message' => 'Charging session canceled successfully'], 200);
+
+        } catch (\Exception $e) {
+            Log::error('Unexpected error while canceling charging session', [
+                'port' => $port,
+                'error' => $e->getMessage(),
+            ]);
+            return response()->json(['success' => false, 'message' => 'An unexpected error occurred'], 500);
         }
     }
 

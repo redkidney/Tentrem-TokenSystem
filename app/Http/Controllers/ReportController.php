@@ -74,17 +74,39 @@ class ReportController extends Controller
         $csvData[] = ['Session ID', 'Guest Name', 'Room Number', 'Phone Number', 'Port', 'Voucher Name', 'Duration', 'Price', 'Date'];
 
         foreach ($sessions as $session) {
-            $csvData[] = [
-                $session->id,
-                $session->guest_name,
-                $session->room_no,
-                $session->phone,
-                $session->charging_port,
-                $session->voucher ? $session->voucher->voucher_name : 'N/A',
-                $session->voucher ? $session->voucher->duration . ' min' : 'N/A',
-                $session->voucher ? 'Rp ' . number_format($session->voucher->price, 2, ',', '.') : 'N/A',
-                $session->updated_at ? $session->updated_at->format('Y-m-d H:i') : 'N/A',
-            ];
+            try {
+                $voucherName = optional($session->voucher)->voucher_name ?? 'N/A';
+                $voucherDuration = optional($session->voucher)->duration 
+                    ? optional($session->voucher)->duration . ' min' 
+                    : 'N/A';
+                $voucherPrice = optional($session->voucher)->price 
+                    ? 'Rp ' . number_format(optional($session->voucher)->price, 2, ',', '.') 
+                    : 'N/A';
+
+                $csvData[] = [
+                    $session->id,
+                    $session->guest_name,
+                    $session->room_no,
+                    $session->phone,
+                    $session->charging_port,
+                    $voucherName,
+                    $voucherDuration,
+                    $voucherPrice,
+                    $session->updated_at ? $session->updated_at->format('Y-m-d H:i') : 'N/A',
+                ];
+            } catch (\Exception $e) {
+                Log::error('CSV Export Error', [
+                    'session_id' => $session->id,
+                    'error' => $e->getMessage()
+                ]);
+                
+                // Optionally, you can choose to skip this session or add an error row
+                $csvData[] = [
+                    $session->id,
+                    'Error Processing Session',
+                    '', '', '', '', '', '', ''
+                ];
+            }
         }
 
         // Output CSV

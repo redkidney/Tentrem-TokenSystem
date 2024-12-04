@@ -18,6 +18,10 @@
                 {{ Auth::user()->name[0] }}
             </button>
             <div x-show="open" @click.away="open = false" class="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg py-2 z-50">
+                <form method="GET" action="{{ route('dashboard') }}">
+                    @csrf
+                    <button type="submit" class="block w-full text-left px-4 py-2 text-gray-700 hover:bg-blue-100">Dashboard</button>
+                </form>
                 <form method="GET" action="{{ route('vouchers.create') }}">
                     @csrf
                     <button type="submit" class="block w-full text-left px-4 py-2 text-gray-700 hover:bg-blue-100">Create Voucher</button>
@@ -63,7 +67,7 @@
 
                     <div class="mb-4">
                         <label for="room_no" class="block text-gray-700">Room Number:</label>
-                        <input type="text" name="room_no" required
+                        <input type="text" name="room_no"
                                class="w-full p-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
                                placeholder="Enter room number">
                     </div>
@@ -76,13 +80,20 @@
                     </div>
 
                     <div class="mb-4">
+                        <label for="car_type" class="block text-gray-700">Car Type:</label>
+                        <input type="text" name="car_type"
+                               class="w-full p-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
+                               placeholder="Enter car type">
+                    </div>
+
+                    <div class="mb-4">
                         <label for="voucher_id" class="block text-gray-700">Voucher:</label>
                         <select name="voucher_id" required
                                 class="w-full p-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-green-500">
                             <option value="" disabled selected>Select a voucher</option>
                             @foreach($vouchers as $voucher)
                                 <option value="{{ $voucher->id }}">
-                                    {{ $voucher->voucher_name }} - {{ $voucher->duration }} min
+                                    {{ $voucher->voucher_name }} - {{ $voucher->duration }} min - IDR{{ number_format($voucher->price, 2) }}
                                 </option>
                             @endforeach
                         </select>
@@ -102,6 +113,8 @@
                     <thead>
                         <tr class="bg-gray-100 text-gray-700">
                             <th class="px-4 py-2 text-center">Token</th>
+                            <th class="px-4 py-2 text-center">Name</th>
+                            <th class="px-4 py-2 text-center">Room No</th>
                             <th class="px-4 py-2 text-center">Expiry</th>
                             <th class="px-4 py-2 text-center">Duration</th>
                             <th class="px-4 py-2 text-center">Used</th>
@@ -111,6 +124,8 @@
                         @foreach($tokens as $token)
                             <tr class="border-b">
                                 <td class="px-4 py-2 text-center">{{ $token->token }}</td>
+                                <td class="px-4 py-2 text-center">{{ $token->guest_name }}</td>
+                                <td class="px-4 py-2 text-center">{{ $token->room_no }}</td>
                                 <td class="px-4 py-2 text-center">{{ $token->expiry->format('Y-m-d H:i') }}</td>
                                 <td class="px-4 py-2 text-center">{{ $token->duration }} min</td>
                                 <td class="px-4 py-2 text-center">{{ $token->used ? 'Yes' : 'No' }}</td>
@@ -126,68 +141,88 @@
     @if(session('tokenData'))
         <script>
             document.addEventListener("DOMContentLoaded", function() {
-                const tokenData = @json(session('tokenData'));
+            const tokenData = @json(session('tokenData'));
 
-                const printWindow = window.open('', '', 'width=300,height=400');
-                printWindow.document.write('<html><head><title>Print Token</title>');
-                printWindow.document.write('<style>');
-                printWindow.document.write(`
-                    body {
-                        font-family: monospace;
-                        text-align: center;
-                        margin: 0;
-                        padding: 0;
-                    }
-                    .header, .footer {
-                        font-weight: bold;
-                        margin-bottom: 10px;
-                    }
-                    .divider {
-                        border-top: 1px dashed #000;
-                        margin: 10px 0;
-                    }
-                    .token {
-                        font-size: 24px;
-                        font-weight: bold;
-                        margin: 20px 0;
-                    }
-                    .details {
-                        font-size: 14px;
-                        line-height: 1.5;
-                    }
-                `);
-                printWindow.document.write('</style></head><body>');
-
-                // Header
-                printWindow.document.write('<div class="header">Hotel Tentrem Yogyakarta</div>');
-                printWindow.document.write('<div class="divider"></div>');
-
-                // Guest and Token Details
-                printWindow.document.write('<div class="details">');
-                printWindow.document.write(`<p>Guest: ${tokenData.guest_name}</p>`);
-                printWindow.document.write(`<p>Room No: ${tokenData.room_no}</p>`);
-                printWindow.document.write('</div>');
-
-                // Token
-                printWindow.document.write('<div class="token">');
-                printWindow.document.write(`TOKEN: ${tokenData.token}`);
-                printWindow.document.write('</div>');
-
-                // Expiry and Duration
-                printWindow.document.write('<div class="details">');
-                printWindow.document.write(`<p>Expiry: ${tokenData.expiry}</p>`);
-                printWindow.document.write(`<p>Duration: ${tokenData.duration} minutes</p>`);
-                printWindow.document.write('</div>');
-
-                // Footer
-                printWindow.document.write('<div class="divider"></div>');
-                printWindow.document.write('<div class="footer">Thank You!</div>');
-
-                printWindow.document.write('</body></html>');
-                printWindow.document.close();
-                printWindow.print();
-                printWindow.close();
+            const currentDateTime = new Date();
+            const formattedDateTime = currentDateTime.toLocaleString('en-GB', {
+                day: '2-digit',
+                month: '2-digit',
+                year: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit',
+                hour12: true
             });
+
+            const printWindow = window.open('', '', 'width=300,height=400');
+            printWindow.document.write('<html><head><title>Print Token</title>');
+            printWindow.document.write('<style>');
+            printWindow.document.write(`
+                body {
+                    font-family: calibri;
+                    margin: 0;
+                    padding: 0;
+                }
+                .header, .footer {
+                    text-align: center;
+                    font-weight: bold;
+                    font-size: 12px;
+                    margin-bottom: 10px;
+                }
+                .divider {
+                    text-align: center;
+                    border-top: 1px dashed #000;
+                    font-size: 12px;
+                    margin: 10px 0;
+                }
+                .token {
+                    text-align: center;
+                    font-size: 16px;
+                    font-weight: bold;
+                    margin: 20px 0;
+                }
+                .details {
+                    text-align: left;
+                    font-size: 12px;
+                    line-height: 0.5;
+                }
+            `);
+            printWindow.document.write('</style></head><body>');
+
+            // Header
+            printWindow.document.write('<div class="header">HOTEL TENTREM YOGYAKARTA</div>');
+            printWindow.document.write('<div class="header">==EV TOKEN SYSTEM==</div>');
+            printWindow.document.write('<div class="divider"></div>');
+
+            // Guest and Token Details
+            printWindow.document.write('<div class="details">');
+            printWindow.document.write('<p>Guest: ' + tokenData.guest_name + '</p>');
+            printWindow.document.write('<p>Room No: ' + tokenData.room_no + '</p>');
+            printWindow.document.write('<br>');
+            printWindow.document.write('<p>Duration: ' + tokenData.duration + ' minutes</p>');
+            printWindow.document.write('<p>Value: IDR ' + tokenData.price + '</p>');
+            printWindow.document.write('</div>');
+
+            // Token
+            printWindow.document.write('<div class="token">');
+            printWindow.document.write('TOKEN: ' + tokenData.token);
+            printWindow.document.write('</div>');
+
+            // Expiry
+            printWindow.document.write('<div class="details">');
+            printWindow.document.write('<p>Valid Until: ' + tokenData.expiry + '</p>');
+            printWindow.document.write('</div>');
+
+            // Footer
+            printWindow.document.write('<div class="divider"></div>');
+            printWindow.document.write('<div class="details">');
+            printWindow.document.write('<p>Date: ' + formattedDateTime + '</p>');
+            printWindow.document.write('<div class="footer">Thank You!</div>');
+
+            printWindow.document.write('</body></html>');
+            printWindow.document.close();
+            printWindow.print();
+            printWindow.close();
+        });
         </script>
     @endif
 </body>

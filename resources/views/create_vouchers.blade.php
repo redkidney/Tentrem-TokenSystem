@@ -17,6 +17,10 @@
                 {{ Auth::user()->name[0] }}
             </button>
             <div x-show="open" @click.away="open = false" class="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg py-2 z-50">
+                <form method="GET" action="{{ route('dashboard') }}">
+                    @csrf
+                    <button type="submit" class="block w-full text-left px-4 py-2 text-gray-700 hover:bg-blue-100">Dashboard</button>
+                </form>
                 <form method="GET" action="{{ route('registry') }}">
                     <button type="submit" class="block w-full text-left px-4 py-2 text-gray-700 hover:bg-blue-100">Generate Token</button>
                 </form>
