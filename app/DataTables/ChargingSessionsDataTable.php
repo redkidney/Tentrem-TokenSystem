@@ -3,6 +3,7 @@
 namespace App\DataTables;
 
 use App\Models\ChargingSession;
+use App\Models\Voucher;
 use Illuminate\Database\Eloquent\Builder as QueryBuilder;
 use Yajra\DataTables\EloquentDataTable;
 use Yajra\DataTables\Html\Builder as HtmlBuilder;
@@ -14,19 +15,42 @@ class ChargingSessionsDataTable extends DataTable
     public function dataTable(QueryBuilder $query): EloquentDataTable
     {
         return (new EloquentDataTable($query))
-            ->setRowId('id') // Set row ID for better table rendering
+            ->setRowId('id')
             ->addColumn('voucher_name', function ($row) {
-                \Log::info('Row Data:', ['row' => $row]);
-                return is_object($row->voucher) ? $row->voucher->voucher_name : 'N/A';
+                // Safely handle cases where voucher might be an ID or null
+                if ($row->voucher) {
+                    // If it's an ID, use the relationship to fetch the voucher
+                    $voucher = is_numeric($row->voucher) 
+                        ? Voucher::find($row->voucher) 
+                        : $row->voucher;
+                    
+                    return $voucher ? $voucher->voucher_name : 'N/A';
+                }
+                return 'N/A';
             })
             ->addColumn('duration', function ($row) {
-                return is_object($row->voucher) ? $row->voucher->duration . ' min' : 'N/A';
+                if ($row->voucher) {
+                    $voucher = is_numeric($row->voucher) 
+                        ? Voucher::find($row->voucher) 
+                        : $row->voucher;
+                    
+                    return $voucher ? $voucher->duration . ' min' : 'N/A';
+                }
+                return 'N/A';
             })
             ->addColumn('price', function ($row) {
-                return is_object($row->voucher) ? 'Rp ' . number_format($row->voucher->price, 2, ',', '.') : 'N/A';
+                if ($row->voucher) {
+                    $voucher = is_numeric($row->voucher) 
+                        ? Voucher::find($row->voucher) 
+                        : $row->voucher;
+                    
+                    return $voucher 
+                        ? 'Rp ' . number_format($voucher->price, 2, ',', '.') 
+                        : 'N/A';
+                }
+                return 'N/A';
             })
             ->editColumn('updated_at', function ($row) {
-                // Format the date
                 return $row->updated_at ? $row->updated_at->format('Y-m-d H:i') : 'N/A';
             });
     }
