@@ -17,7 +17,7 @@ class CreateChargingSessionsTable extends Migration
             $table->string('guest_name', 255)->nullable();
             $table->string('room_no', 255)->nullable();
             $table->string('phone', 255)->nullable();
-            $table->timestamps();  // includes created_at and updated_at
+            $table->timestamps();
         });
     }
 
