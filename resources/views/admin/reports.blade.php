@@ -7,7 +7,41 @@
     @vite('resources/css/app.css')
     @vite('resources/js/app.js')
     <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.10.5/dist/cdn.min.js" defer></script>
+    {{-- <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.10.5/dist/cdn.min.js" defer></script> --}}
+    @push('styles')
+    <style>
+        #charging-sessions-table_wrapper {
+            @apply bg-white rounded-lg shadow-sm;
+        }
+
+        #charging-sessions-table thead th {
+            @apply bg-gray-50 text-gray-700 font-semibold px-4 py-3 border-b text-left;
+        }
+
+        #charging-sessions-table tbody td {
+            @apply px-4 py-3 border-b border-gray-100;
+        }
+
+        /* Remove any default padding from DataTables */
+        .dataTables_wrapper .dataTables_scroll div.dataTables_scrollBody>table>tbody>tr>td {
+            padding-left: 1rem !important;  /* Use !important to override DataTables defaults */
+        }
+
+        .dataTables_wrapper .dataTables_scroll div.dataTables_scrollBody>table>thead>tr>th {
+            padding-left: 1rem !important;
+        }
+
+        /* Ensure header cells don't get extra padding */
+        table.dataTable thead th, table.dataTable thead td {
+            padding-left: 1rem !important;
+        }
+
+        /* Ensure consistent row heights */
+        #charging-sessions-table tbody tr {
+            @apply h-12;
+        }
+    </style>
+    @endpush
 </head>
 
 @extends('layouts.app')
@@ -24,13 +58,17 @@
                     @csrf
                     <button type="submit" class="block w-full text-left px-4 py-2 text-gray-700 hover:bg-blue-100">Dashboard</button>
                 </form>
+                <form method="GET" action="{{ route('registry') }}">
+                    @csrf
+                    <button type="submit" class="block w-full text-left px-4 py-2 text-gray-700 hover:bg-blue-100">Generate Token</button>
+                </form>
                 <form method="GET" action="{{ route('vouchers.create') }}">
                     @csrf
                     <button type="submit" class="block w-full text-left px-4 py-2 text-gray-700 hover:bg-blue-100">Create Voucher</button>
                 </form>
-                <form method="GET" action="{{ route('registry') }}">
+                <form method="GET" action="{{ route('admin.monitor') }}">
                     @csrf
-                    <button type="submit" class="block w-full text-left px-4 py-2 text-gray-700 hover:bg-blue-100">Generate Token</button>
+                    <button type="submit" class="block w-full text-left px-4 py-2 text-gray-700 hover:bg-blue-100">Charging Monitor</button>
                 </form>
                 <form method="POST" action="{{ route('logout') }}">
                     @csrf
@@ -86,39 +124,16 @@
     </div>
 
     @push('scripts')
-    <script type="module">
+    {{ $dataTable->scripts() }}
+    <script>
         document.addEventListener("DOMContentLoaded", function () {
-            const table = $('#charging-sessions-table').DataTable({
-                processing: true,
-                serverSide: true,
-                ajax: {
-                    url: "{{ route('reports.charging-sessions') }}",
-                    data: function (d) {
-                        d.start_date = $('#start_date').val();
-                        d.end_date = $('#end_date').val();
-                    },
-                },
-                columns: [
-                    { data: "id", name: "id", title: "Session ID" },
-                    { data: "guest_name", name: "guest_name", title: "Guest Name" },
-                    { data: "room_no", name: "room_no", title: "Room Number" },
-                    { data: "phone", name: "phone", title: "Phone Number" },
-                    { data: "charging_port", name: "charging_port", title: "Port" },
-                    { data: "voucher_name", name: "voucher_name", title: "Voucher Name" },
-                    { data: "duration", name: "duration", title: "Duration" },
-                    { data: "price", name: "price", title: "Price" },
-                    { data: "updated_at", name: "updated_at", title: "Date" },
-                ],
-                order: [[8, "desc"]],
-            });
-
+            const table = window.LaravelDataTables['charging-sessions-table'];
+            
             window.filterTable = function () {
-                console.log('Filter button clicked'); // Debugging
                 table.draw();
             };
-        });
 
-        document.addEventListener("DOMContentLoaded", function () {
+            // Date sync for CSV export
             const startDateInput = document.getElementById("start_date");
             const endDateInput = document.getElementById("end_date");
             const csvStartDateInput = document.getElementById("csv_start_date");

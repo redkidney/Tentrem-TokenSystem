@@ -17,7 +17,12 @@ Broadcast::channel('App.Models.User.{id}', function ($user, $id) {
     return (int) $user->id === (int) $id;
 });
 
-Broadcast::channel('charging-port', function ($user, $status, $port) {
+Broadcast::channel('charging-port', function () {
+    // Return true or false to authorize the user to listen to the channel
+    return true;
+});
+
+Broadcast::channel('monitor-update', function () {
     // Return true or false to authorize the user to listen to the channel
     return true;
 });

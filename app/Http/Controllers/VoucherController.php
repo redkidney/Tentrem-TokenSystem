@@ -7,10 +7,10 @@ use Illuminate\Http\Request;
 
 class VoucherController extends Controller
 {
-    public function create()
+    public function index()
     {
         $vouchers = Voucher::all();
-        return view('create_vouchers', compact('vouchers'));
+        return view('admin.create_vouchers', compact('vouchers'));
     }
 
     public function store(Request $request)
@@ -24,5 +24,29 @@ class VoucherController extends Controller
         Voucher::create($validated);
 
         return redirect()->route('vouchers.create')->with('success', 'Voucher created successfully!');
+    }
+
+    public function edit(Voucher $voucher)
+    {
+        return view('admin.edit_voucher', compact('voucher'));
+    }
+
+    public function update(Request $request, Voucher $voucher)
+    {
+        $validated = $request->validate([
+            'voucher_name' => 'required|string|max:10',
+            'duration' => 'required|integer|min:1',
+            'price' => 'required|numeric|min:0',
+        ]);
+
+        $voucher->update($validated);
+
+        return redirect()->route('vouchers.create')->with('success', 'Voucher updated successfully!');
+    }
+
+    public function destroy(Voucher $voucher)
+    {
+        $voucher->delete();
+        return redirect()->route('vouchers.create')->with('success', 'Voucher deleted successfully!');
     }
 }

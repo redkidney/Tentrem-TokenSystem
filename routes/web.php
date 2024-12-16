@@ -1,65 +1,107 @@
 <?php
 
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
+use App\Http\Controllers\Auth\LoginController;
+use App\Http\Controllers\HomeController;
 use App\Http\Controllers\TokenController;
 use App\Http\Controllers\VoucherController;
 use App\Http\Controllers\ReportController;
-use App\DataTables\ChargingSessionsDataTable;
 use App\Events\ChargingStatus;
+
 /*
 |--------------------------------------------------------------------------
 | Web Routes
 |--------------------------------------------------------------------------
 |
-| Here is where you can register web routes for your application. These
-| routes are loaded by the RouteServiceProvider and all of them will
-| be assigned to the "web" middleware group. Make something great!
+| Routes are organized into logical groups:
+| - Authentication & Home
+| - Customer Charging
+| - Admin & Protected Routes
+| - Reports
 |
 */
 
+/*
+|--------------------------------------------------------------------------
+| Authentication & Home Routes
+|--------------------------------------------------------------------------
+*/
 Route::get('/', function () {
-    if (Auth::check()) {
-        return redirect()->route('dashboard'); // Redirect to the dashboard if authenticated
-    } else {
-        return redirect()->route('login'); // Redirect to the login page if not authenticated
-    }
+    return Auth::check() 
+        ? redirect()->route('dashboard')
+        : redirect()->route('login');
 });
 
-Route::get('/dashboard', [App\Http\Controllers\HomeController::class, 'index'])->name('dashboard')->middleware('auth');
+Auth::routes();
 
-// Registry routes
-Route::get('/registry', [TokenController::class, 'showRegistry'])->name('registry')->middleware('auth');
-Route::post('/generate-token', [TokenController::class, 'generateToken'])->name('generate-token')->middleware('auth');
+Route::middleware(['auth'])->group(function () {
+    Route::get('/dashboard', [HomeController::class, 'index'])->name('dashboard');
+    Route::get('/home', [HomeController::class, 'index'])->name('home');
+    Route::post('/logout', [LoginController::class, 'logout'])->name('logout');
+});
 
-//Customer routes
-Route::get('/customer/{port}', [TokenController::class, 'showCustomer'])->name('customer');
-Route::post('/customer/validate', [TokenController::class, 'validateToken'])->name('customer.validate');
+/*
+|--------------------------------------------------------------------------
+| Customer Charging Routes
+|--------------------------------------------------------------------------
+*/
+Route::prefix('customer')->group(function () {
+    Route::post('/validate', [TokenController::class, 'validateToken'])->name('customer.validate');
+    Route::post('/{port}/end', [TokenController::class, 'endCharging'])->name('end-charging');
+    Route::post('/{port}/cancel', [TokenController::class, 'cancelCharging'])->name('customer.cancel');
+});
+
 Route::get('/charging-ports', [TokenController::class, 'showBoth'])->name('ports-both');
-
-// Start and end charging
 Route::post('/start-charging', [TokenController::class, 'startCharging'])->name('start-charging');
-Route::post('/customer/{port}/end', [TokenController::class, 'endCharging'])->name('end-charging');
 
-Route::post('/customer/{port}/cancel', [TokenController::class, 'cancelCharging'])->name('customer.cancel');
-Auth::routes();
+/*
+|--------------------------------------------------------------------------
+| Admin Routes
+|--------------------------------------------------------------------------
+*/
+Route::middleware(['auth'])->group(function () {
+    // Registry Management
+    Route::prefix('registry')->group(function () {
+        Route::get('/', [TokenController::class, 'showRegistry'])->name('registry');
+        Route::post('/generate-token', [TokenController::class, 'generateToken'])->name('generate-token');
+    });
 
-Route::get('/home', [App\Http\Controllers\HomeController::class, 'index'])->name('home');
-Route::post('/logout', [App\Http\Controllers\Auth\LoginController::class, 'logout'])->name('logout');
+    // Voucher Management
+    Route::prefix('vouchers')->group(function () {
+        Route::get('/', [VoucherController::class, 'index'])->name('vouchers.create');
+        Route::post('/', [VoucherController::class, 'store'])->name('vouchers.store');
+        Route::get('/{voucher}/edit', [VoucherController::class, 'edit'])->name('vouchers.edit');
+        Route::put('/{voucher}', [VoucherController::class, 'update'])->name('vouchers.update');
+        Route::delete('/{voucher}', [VoucherController::class, 'destroy'])->name('vouchers.destroy');
+    });
 
-Route::get('/test-event', function() {
-    event(new ChargingStatus('charging_started', 1));
-    return 'Event dispatched';
+    // Admin Monitoring
+    Route::prefix('admin')->group(function () {
+        Route::get('/monitor', [TokenController::class, 'showMonitor'])->name('admin.monitor');
+        Route::get('/port/{port}/current', [TokenController::class, 'getCurrent']);
+        Route::post('/charging/{port}/cancel', [TokenController::class, 'cancelCharging'])->name('admin.charging.cancel');
+    });
 });
 
-Route::get('/vouchers', [VoucherController::class, 'create'])->name('vouchers.create')->middleware('auth');
-Route::post('/vouchers-store', [VoucherController::class, 'store'])->name('vouchers.store')->middleware('auth');
+/*
+|--------------------------------------------------------------------------
+| Report Routes
+|--------------------------------------------------------------------------
+*/
+Route::prefix('reports')->middleware(['auth'])->group(function () {
+    Route::get('/', [ReportController::class, 'index'])->name('reports.charging-sessions');
+    Route::get('/export/csv', [ReportController::class, 'exportCsv'])->name('reports.export.csv');
+});
 
-Route::get('/reports', [ReportController::class, 'index'])->name('reports.charging-sessions')->middleware('auth');
-Route::get('/reports/export/csv', [ReportController::class, 'exportCsv'])->name('reports.export.csv');
-
-Auth::routes();
-
-Route::get('/home', [App\Http\Controllers\HomeController::class, 'index'])->name('home');
-
-
-
+/*
+|--------------------------------------------------------------------------
+| Development/Testing Routes
+|--------------------------------------------------------------------------
+*/
+if (app()->environment('local', 'development')) {
+    Route::get('/test-event', function() {
+        event(new ChargingStatus('charging_started', 1));
+        return 'Event dispatched';
+    });
+}

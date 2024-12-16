@@ -31,7 +31,7 @@ class HomeController extends Controller
 
         $recentActivities = $this->getRecentActivities();
 
-        return view('dashboard', compact('totalTokens', 'activeVouchers', 'chargingSessions', 'recentActivities'));
+        return view('admin.dashboard', compact('totalTokens', 'activeVouchers', 'chargingSessions', 'recentActivities'));
     }
 
     private function getRecentActivities()

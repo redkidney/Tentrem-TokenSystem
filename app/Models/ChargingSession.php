@@ -10,30 +10,25 @@ class ChargingSession extends Model
     use HasFactory;
 
     protected $fillable = [
-        'token', 
-        'charging_port', 
-        'start_time', 
-        'end_time', 
-        'guest_name', 
-        'room_no', 
+        'token',
+        'charging_port',
+        'start_time',
+        'end_time',
+        'guest_name',
+        'room_no',
         'phone',
-        'voucher'
+        'car_type',
+        'voucher_name',
+        'voucher_duration',
+        'voucher_price',
+        'used_time',
+        'port_history'
     ];
 
-    // Cast 'start_time' and 'end_time' to Carbon instances
     protected $casts = [
         'start_time' => 'datetime',
         'end_time' => 'datetime',
+        'voucher_price' => 'decimal:2',
+        'port_history' => 'array'
     ];
-
-    // Relationships (if any)
-    public function token()
-    {
-        return $this->belongsTo(Token::class);
-    }
-
-    public function voucher()
-    {
-        return $this->belongsTo(Voucher::class, 'voucher', 'id');
-    }
 }

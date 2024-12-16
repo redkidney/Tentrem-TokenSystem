@@ -2,21 +2,20 @@
 
 namespace App\Http\Controllers;
 
-use Illuminate\Support\Facades\Auth;
-
-use App\Models\Token;
 use App\Models\ChargingSession;
 use App\Models\Port;
+use App\Models\Token;
 use App\Models\Voucher;
-use App\DataTables\ChargingSessionsDataTable;
-
-use App\Services\MqttPublishService;
+use App\Events\ChargingStatus;
+use App\Events\MonitorUpdate;
 use App\Jobs\EndChargingJob;
-
+use App\Jobs\PauseExpirationJob;
+use App\Services\MqttPublishService;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
-use Yajra\DataTables\Facades\DataTables;
+use Illuminate\Support\Str;
 
 class TokenController extends Controller
 {
@@ -31,8 +30,7 @@ class TokenController extends Controller
     {
         $tokens = Token::latest()->take(10)->get();
         $vouchers = Voucher::all();
-
-        return view('registry', compact('tokens',  'vouchers'));
+        return view('admin.registry', compact('tokens', 'vouchers'));
     }
 
     public function generateToken(Request $request)
@@ -40,43 +38,39 @@ class TokenController extends Controller
         $request->validate([
             'voucher_id' => 'required|exists:vouchers,id',
             'guest_name' => 'required|string|max:255',
-            // 'room_no' => 'required|string|max:50',
-            // 'phone' => 'nullable|string|max:20',
         ]);
 
-        // Retrieve selected voucher details
         $voucher = Voucher::find($request->voucher_id);
 
         // Generate a unique 5-digit token
         do {
-            $token = mt_rand(10000, 99999);
-        } while (Token::where('token', $token)->exists());
+            $newToken = mt_rand(10000, 99999);
+        } while (Token::where('token', $newToken)->exists());
 
-        // Create the token entry in the database
         $tokenData = Token::create([
-            'token' => $token,
-            'expiry' => now()->addMinutes(1440),
-            'duration' => $voucher->duration,
-            'used' => false,
-            'guest_name' => $request->input('guest_name'),
-            'room_no' => $request->input('room_no'),
-            'phone' => $request->input('phone'),
-            'voucher' => $voucher->id,
-            'car_type' => $request->input('car_type'),
+            'token'          => $newToken,
+            'expiry'         => now()->addDay(), // 24 hours
+            'duration'       => $voucher->duration,
+            'remaining_time' => $voucher->duration * 60,
+            'used'           => false,
+            'guest_name'     => $request->guest_name,
+            'room_no'        => $request->room_no,
+            'phone'          => $request->phone,
+            'voucher'        => $voucher->id,
+            'car_type'       => $request->car_type,
         ]);
 
-        // Redirect with success message and token data
         return redirect()->route('registry')->with([
-            'success' => "Token $token generated successfully using voucher: {$voucher->voucher_name}!",
+            'success' => "Token {$newToken} generated successfully using voucher: {$voucher->voucher_name}!",
             'tokenData' => [
-                'token' => $tokenData->token,
-                'guest_name' => $tokenData->guest_name,
-                'room_no' => $tokenData->room_no,
-                'phone' => $tokenData->phone,
-                'expiry' => $tokenData->expiry->format('Y-m-d H:i'),
-                'duration' => $tokenData->duration,
-                'price' => number_format($voucher->price, 2),
-                'voucher_id' => $voucher->id,
+                'token'       => $tokenData->token,
+                'guest_name'  => $tokenData->guest_name,
+                'room_no'     => $tokenData->room_no,
+                'phone'       => $tokenData->phone,
+                'expiry'      => $tokenData->expiry->format('Y-m-d H:i'),
+                'duration'    => $tokenData->duration,
+                'price'       => number_format($voucher->price, 2),
+                'voucher_id'  => $voucher->id,
             ],
         ]);
     }
@@ -92,24 +86,13 @@ class TokenController extends Controller
 
     public function showBoth()
     {
-        $ports = Port::all();
-
-        // Resume any running sessions as needed
+        // Try to resume any running sessions
         $this->resumeSessions();
 
-        // Update each port's remaining time based on its status
-        $ports->each(function ($port) {
-            if ($port->status === 'paused') {
-                // If the port is paused, use the pre-existing remaining time
-                $port->remaining_time;
-            } elseif ($port->status === 'running') {
-                // If the port is running, calculate the remaining time
+        // Get all ports and update their remaining times if they are running
+        $ports = Port::all()->each(function ($port) {
+            if ($port->status === 'running') {
                 $port->remaining_time = $this->calculateTimeAmount($port->end_time);
-
-                // Optionally access additional data if needed
-                $port->start_time;
-                $port->end_time;
-                now();
             }
         });
 
@@ -120,128 +103,213 @@ class TokenController extends Controller
     {
         $request->validate([
             'token' => 'required|string',
-            'port' => 'required|integer|in:1,2',
+            'port'  => 'required|integer|in:1,2',
         ]);
 
         $token = Token::where('token', $request->token)->first();
+        $port = Port::find($request->port);
 
-        // Check if the token is invalid
         if (!$token) {
             return response()->json(['success' => false, 'message' => 'Token is incorrect'], 400);
         }
 
-        // Check if the token is expired
         if ($token->expiry < now()) {
             return response()->json(['success' => false, 'message' => 'Token has expired'], 400);
         }
 
-        // Check if the token is already used
-        if ($token->used) {
-            return response()->json(['success' => false, 'message' => 'Token has already been used'], 400);
+        if ($token->remaining_time <= 0) {
+            return response()->json(['success' => false, 'message' => 'No charging time remaining'], 400);
         }
 
-        
+        if (!$port || ($port->status !== 'idle' && !$port->isPauseExpired())) {
+            return response()->json(['success' => false, 'message' => 'Port unavailable'], 400);
+        }
 
-        // Send MQTT command to start charging
+        // Command the charging hardware to start
         $mqttResponse = $this->sendMQTTCommand($request->port, 'start', $token->duration);
         if (!$mqttResponse['success']) {
-            Log::info("(controller) MQTT start message sent successfully");
             return response()->json(['success' => false, 'message' => $mqttResponse['message']], 500);
         }
 
-        return response()->json(['success' => true, 'duration' => $token->duration]);
+        return response()->json([
+            'success'        => true,
+            'remaining_time' => $token->remaining_time,
+            'is_resuming'    => $port->status === 'paused'
+        ]);
     }
-
 
     public function startCharging(Request $request)
     {
         $port = Port::find($request->port);
-
         if (!$port || !in_array($port->status, ['idle', 'paused'])) {
-            // Only allow starting if the port is 'idle' or 'paused'
             return response()->json(['success' => false, 'message' => 'Invalid or inactive port'], 400);
         }
 
         $token = Token::where('token', $request->token)->first();
-
-        if (!$token) {
-            return response()->json(['success' => false, 'message' => 'Invalid token'], 400);
-        }
-
-        // Retrieve voucher
         $voucher = Voucher::find($token->voucher);
-        if (!$voucher) {
-            return response()->json(['success' => false, 'message' => 'Voucher not found for the token'], 400);
+
+        $startTime = now();
+
+        // Check for an existing session for this token today
+        $existingSession = ChargingSession::where('token', $token->token)
+            ->where('guest_name', $token->guest_name)
+            ->whereBetween('created_at', [
+                $token->created_at->startOfDay(),
+                $token->created_at->clone()->addDay()->endOfDay()
+            ])
+            ->first();
+
+        if (!$existingSession) {
+            ChargingSession::create([
+                'token'            => $token->token,
+                'charging_port'    => $request->port,
+                'start_time'       => $startTime,
+                'guest_name'       => $token->guest_name,
+                'room_no'          => $token->room_no,
+                'phone'            => $token->phone,
+                'car_type'         => $token->car_type,
+                'voucher_name'     => $voucher->voucher_name,
+                'voucher_duration' => $voucher->duration,
+                'voucher_price'    => $voucher->price,
+                'port_history'     => [[
+                    'port' => $request->port,
+                    'start_time' => $startTime->toDateTimeString(),
+                    'end_time' => null
+                ]]
+            ]);
+        } else {
+            // Add new port usage to history
+            $portHistory = $existingSession->port_history ?? [];
+            $portHistory[] = [
+                'port' => $request->port,
+                'start_time' => $startTime->toDateTimeString(),
+                'end_time' => null
+            ];
+            
+            $existingSession->update([
+                'port_history' => $portHistory
+            ]);
         }
 
-        Log::info("(controller) startCharging method called");
+        $timeAmount = $token->remaining_time;
+        $endTime = (clone $startTime)->addSeconds($timeAmount);
 
-        // Calculate start and end time
-        $startTime = now();
-        $endTime = (clone $startTime)->addMinutes($voucher->duration);
-
-        // Insert a new charging session record
-        ChargingSession::create([
-            'token' => $token->token,
-            'charging_port' => $request->port,
-            'guest_name' => $token->guest_name,
-            'room_no' => $token->room_no,
-            'phone' => $token->phone,
-            'voucher' => $voucher->id,
-        ]);
-
-        // Update port status to 'running' and set end time
         $port->update([
-            'status' => 'running',
-            'current_token' => $token->token,
-            'start_time' => $startTime,
-            'end_time' => $endTime,
+            'status'         => 'running',
+            'current_token'  => $token->token,
+            'start_time'     => $startTime,
+            'end_time'       => $endTime,
+            'remaining_time' => $timeAmount
         ]);
 
-        $timeAmount = $this->calculateTimeAmount($endTime);
-        Log::info('(controller) Calculated timeAmount for EndChargingJob: ' . $timeAmount);
+        event(new MonitorUpdate('charging_started', $port->id, $token->token, $voucher->duration, $timeAmount));
 
-        $cacheKey = 'port_' . $request->port . '_job_dispatched';
+        // Create a unique session ID so we can ensure the correct job ends this session
+        $sessionId = Str::uuid()->toString();
+        Cache::put("port_{$request->port}_session_id", $sessionId);
+
+        $cacheKey = "port_{$request->port}_job_dispatched";
         try {
-            EndChargingJob::dispatch($token->token, $request->port)
+            EndChargingJob::dispatch($token->token, $request->port, $sessionId)
                 ->onQueue('high_priority')
-                ->delay(now()->addSeconds($timeAmount));
+                ->delay($endTime);
+
             Cache::put($cacheKey, true, $timeAmount);
         } catch (\Exception $e) {
             Log::error('Failed to dispatch EndChargingJob', ['error' => $e->getMessage()]);
             return response()->json(['success' => false, 'message' => 'Failed to start charging session'], 500);
         }
-        
-        // Mark the token as used
+
         $token->update(['used' => true]);
 
-        return response()->json(['success' => true, 'message' => 'Charging started']);
+        return response()->json([
+            'success'        => true,
+            'message'        => 'Charging started',
+            'remaining_time' => $timeAmount,
+            'duration'       => $voucher->duration
+        ]);
     }
 
     public function endCharging(Request $request, $port)
     {
+        Log::info("(TokenController) endCharging called", [
+            'port' => $port,
+            'request_data' => $request->all()
+        ]);
+
         try {
             if (!in_array($port, [1, 2])) {
                 return response()->json(['success' => false, 'message' => 'Invalid port'], 400);
             }
 
-            $token = Token::where('used', true)->first();
-            if (!$token) {
-                return response()->json(['success' => false, 'message' => 'Session already stopped or invalid token'], 404);
+            $portData = Port::find($port);
+            if (!$portData || !$portData->current_token) {
+                return response()->json(['success' => false, 'message' => 'No active session found'], 404);
             }
 
-            // Update the charging session with end time
-            $chargingSession = ChargingSession::where('token', $request->token)
-                ->where('charging_port', $port)
-                ->first();
+            Cache::forget("port_{$port}_job_dispatched");
 
-            if ($chargingSession) {
-                $chargingSession->update(['end_time' => now()]);
+            $token = Token::where('token', $portData->current_token)->first();
+            if ($token) {
+                if (!$portData->start_time) {
+                    return response()->json(['success' => false, 'message' => 'Invalid port start time'], 400);
+                }
+
+                // For paused sessions, use the stored remaining_time directly
+                if ($portData->status === 'paused') {
+                    $token->remaining_time = max(0, $portData->remaining_time);
+                } else {
+                    // For running sessions, calculate based on start/end times
+                    $startTime = Carbon::parse($portData->start_time);
+                    $usedTime = (int)$startTime->diffInRealSeconds(now());
+                    $oldRemaining = $token->remaining_time;
+                    $token->remaining_time = max(0, $oldRemaining - $usedTime);
+                }
+                
+                $token->save();
+
+                $totalDurationSeconds = $token->duration * 60;
+                $totalUsedSeconds = $totalDurationSeconds - $token->remaining_time;
+
+                $session = ChargingSession::where('token', $token->token)
+                    ->where('guest_name', $token->guest_name)
+                    ->whereBetween('created_at', [
+                        $token->created_at->startOfDay(),
+                        $token->created_at->clone()->addDay()->endOfDay()
+                    ])
+                    ->first();
+
+                if ($session) {
+                    // Update the latest port history entry with end time
+                    $portHistory = $session->port_history;
+                    $lastIndex = count($portHistory) - 1;
+                    if ($lastIndex >= 0) {
+                        $portHistory[$lastIndex]['end_time'] = now()->toDateTimeString();
+                    }
+
+                    $session->update([
+                        'end_time' => now(),
+                        'used_time' => $totalUsedSeconds,
+                        'port_history' => $portHistory
+                    ]);
+                }
             }
+
+            $portData->update([
+                'status' => 'idle',
+                'current_token' => null,
+                'remaining_time' => 0,
+                'start_time' => null,
+                'end_time' => null,
+                'pause_expiry' => null
+            ]);
+
+            // Clear the session ID for this port now that the session ended
+            Cache::forget("port_{$port}_session_id");
 
             return response()->json(['success' => true]);
-
         } catch (\Exception $e) {
+            Log::error('Error in endCharging:', ['error' => $e->getMessage()]);
             return response()->json(['success' => false, 'message' => 'Failed to stop charging'], 500);
         }
     }
@@ -249,162 +317,231 @@ class TokenController extends Controller
     public function cancelCharging(Request $request, $port)
     {
         try {
-            // Validate the port
             if (!in_array($port, [1, 2])) {
                 return response()->json(['success' => false, 'message' => 'Invalid port'], 400);
             }
 
-            // Fetch the current token from the ports table
             $portData = Port::where('id', $port)->first();
-
             if (!$portData || !$portData->current_token) {
-                return response()->json(['success' => false, 'message' => 'No active charging session found for this port'], 404);
+                return response()->json(['success' => false, 'message' => 'No active session found'], 404);
             }
 
-            $token = $portData->current_token;
+            // Send events before ending the charging
+            event(new MonitorUpdate('charging_cancelled', $portData->id, '', 0, 0));
+            event(new ChargingStatus('charging_cancelled', $portData->id, 0));
 
-            // Validate that the token exists in the tokens table
-            $tokenData = Token::where('token', $token)->first();
-            if (!$tokenData) {
-                return response()->json(['success' => false, 'message' => 'Invalid token associated with this port'], 404);
-            }
+            // Stop hardware charging
+            $this->sendMQTTCommand($port, 'stop');
 
-            // Attempt to end the charging session
-            try {
-                $this->endCharging($request, $port); // Assuming this method handles ending the session
-            } catch (\Exception $e) {
-                Log::error('Failed to end charging session', [
-                    'port' => $port,
-                    'token' => $token,
-                    'error' => $e->getMessage(),
-                ]);
-                return response()->json(['success' => false, 'message' => 'Failed to end charging session'], 500);
-            }
+            // Clear job-related cache
+            Cache::forget("port_{$port}_job_dispatched");
+            Cache::forget("port_{$port}_session_id");
 
-            // Dispatch the EndChargingJob
-            $cacheKey = 'port_' . $port . '_job_dispatched';
-            $timeAmount = $this->calculateTimeAmount(now()); // Assuming this calculates remaining time
-
-            try {
-                EndChargingJob::dispatch($token, $port)
-                    ->onQueue('high_priority');
-                Cache::put($cacheKey, true, $timeAmount);
-            } catch (\Exception $e) {
-                Log::error('Failed to dispatch EndChargingJob', [
-                    'port' => $port,
-                    'token' => $token,
-                    'error' => $e->getMessage(),
-                ]);
-                return response()->json(['success' => false, 'message' => 'Failed to cancel charging session'], 500);
-            }
-
-            // Successful cancellation
-            Log::info('Charging session canceled successfully', [
-                'port' => $port,
-                'token' => $token,
-            ]);
-            return response()->json(['success' => true, 'message' => 'Charging session canceled successfully'], 200);
+            // End charging with the same request
+            return $this->endCharging($request, $port);
 
         } catch (\Exception $e) {
-            Log::error('Unexpected error while canceling charging session', [
-                'port' => $port,
-                'error' => $e->getMessage(),
-            ]);
+            Log::error('Error canceling charging session', ['error' => $e->getMessage()]);
             return response()->json(['success' => false, 'message' => 'An unexpected error occurred'], 500);
         }
     }
 
     public function resumeSessions()
     {
-        $ports = Port::where('status', 'running')->get();
+        $ports = Port::where('status', 'running')
+            ->orWhere('status', 'paused')
+            ->get();
 
         foreach ($ports as $port) {
-            $remainingTime = $this->calculateTimeAmount($port->end_time);
+            if ($port->status === 'paused') {
+                if ($port->pause_expiry <= 0) {
+                    $port->update([
+                        'status' => 'idle',
+                        'current_token' => null,
+                        'remaining_time' => 0,
+                        'pause_expiry' => null
+                    ]);
+                    
+                    event(new ChargingStatus('pause_expired', $port->id));
+                    continue;
+                }
 
-            // Create a cache key for this port to track job dispatch
-            $cacheKey = 'port_' . $port->id . '_job_dispatched';
+                if ($port->current_token) {
+                    $token = Token::where('token', $port->current_token)->first();
+                    if ($token) {
+                        if ($port->remaining_time !== $token->remaining_time) {
+                            $port->update(['remaining_time' => $token->remaining_time]);
+                        }
 
-            // Check if the job has already been dispatched for this port
-            if ($remainingTime > 0) {
+                        event(new MonitorUpdate(
+                            'charging_paused',
+                            $port->id,
+                            $port->current_token,
+                            $token->duration,
+                            $token->remaining_time
+                        ));
+
+                        event(new ChargingStatus(
+                            'charging_paused',
+                            $port->id,
+                            $token->remaining_time,
+                            $port->pause_expiry
+                        ));
+                    }
+                }
+                continue;
+            }
+
+            // Handle running ports
+            if ($port->status === 'running') {
+                $remainingTime = $this->calculateTimeAmount($port->end_time);
+                $cacheKey = "port_{$port->id}_job_dispatched";
+
+                if ($remainingTime <= 0) {
+                    $port->update([
+                        'status' => 'idle',
+                        'current_token' => null,
+                        'remaining_time' => 0,
+                        'start_time' => null,
+                        'end_time' => null
+                    ]);
+                    Cache::forget($cacheKey);
+                    Cache::forget("port_{$port->id}_session_id");
+                    continue;
+                }
+
+                if ($port->current_token) {
+                    $token = Token::where('token', $port->current_token)->first();
+                    if ($token) {
+                        $token->update(['remaining_time' => $remainingTime]);
+                    }
+                }
+
                 if (!Cache::has($cacheKey)) {
+                    $sessionId = Cache::get("port_{$port->id}_session_id");
+                    if (!$sessionId) {
+                        $sessionId = Str::uuid()->toString();
+                        Cache::put("port_{$port->id}_session_id", $sessionId);
+                    }
+
                     try {
-                        // Re-dispatch EndChargingJob with the remaining time
-                        EndChargingJob::dispatch($port->current_token, $port->id)
+                        EndChargingJob::dispatch($port->current_token, $port->id, $sessionId)
                             ->onQueue('high_priority')
                             ->delay(now()->addSeconds($remainingTime));
 
-                        // Store the dispatch status in the cache with expiration time equal to the remaining time
                         Cache::put($cacheKey, true, $remainingTime);
+                        Log::info("Resumed session for port {$port->id} with session ID {$sessionId} and remaining time {$remainingTime} seconds.");
                     } catch (\Exception $e) {
-                        Log::error('Failed to dispatch EndChargingJob for port ' . $port->id, ['error' => $e->getMessage()]);
+                        Log::error("Failed to dispatch EndChargingJob for port {$port->id}", [
+                            'error' => $e->getMessage(),
+                            'remaining_time' => $remainingTime
+                        ]);
                     }
-                } else {
-                    Log::info("Job for port {$port->id} is already dispatched.");
                 }
-            } else {
-                // If the remaining time is 0 or less, reset the port to idle
-                $port->update(['status' => 'idle', 'current_token' => null]);
 
-                // Clear the cache since the job should no longer be dispatched
-                Cache::forget($cacheKey);
+                event(new MonitorUpdate(
+                    'charging_started',
+                    $port->id,
+                    $port->current_token,
+                    $token->duration ?? 0,
+                    $remainingTime
+                ));
+
+                event(new ChargingStatus(
+                    'charging_started',
+                    $port->id,
+                    $remainingTime
+                ));
             }
         }
     }
 
     public function pauseCharging(int $port)
     {
+        Log::info("(controller)pauseCharging method called for port {$port}");
+
         $portInstance = Port::find($port);
 
         if ($portInstance && $portInstance->status === 'running') {
-            // Calculate remaining time
             $remainingTime = $this->calculateTimeAmount($portInstance->end_time);
-
-            // Update port status and save remaining time
+            $pauseExpiry = 1 * 60;
+            
             $portInstance->update([
                 'status' => 'paused',
                 'remaining_time' => $remainingTime,
+                'pause_expiry' => $pauseExpiry
             ]);
 
-            Cache::forget('port_' . $port . '_job_dispatched');
+            if ($portInstance->current_token) {
+                Token::where('token', $portInstance->current_token)
+                    ->update(['remaining_time' => $remainingTime]);
+            }
 
-            Log::info("Charging for port {$port} paused with {$remainingTime} seconds remaining.");
+            event(new MonitorUpdate('charging_paused', $portInstance->id, $portInstance->current_token, $portInstance->duration, $remainingTime));
+            
+            Cache::forget("port_{$port}_job_dispatched");
+            Cache::forget("port_{$port}_session_id");
 
-            return ['success' => true, 'remaining_time' => $remainingTime];
+            PauseExpirationJob::dispatch($port)->delay(now()->addSeconds($pauseExpiry));
+
+            return [
+                'success' => true,
+                'remaining_time' => $remainingTime,
+                'pause_expiry' => $pauseExpiry
+            ];
         }
 
-        Log::warning("Failed to pause charging for port {$port}. Invalid port or not running.");
         return ['success' => false, 'message' => 'Invalid port or port not running'];
     }
 
     public function resumeCharging($portId)
     {
-        $port = Port::where('id', $portId)->where('status', 'paused')->first();
+        Log::info("(controller)resumeCharging method called for port {$portId}");
 
+        $port = Port::where('id', $portId)->where('status', 'paused')->first();
         if ($port && $port->remaining_time > 0) {
             $remainingTime = $port->remaining_time;
             $newEndTime = now()->addSeconds($remainingTime);
 
+            $token = Token::where('token', $port->current_token)->first();
+            $duration = $token ? $token->duration : 0;
+
+            // First update the port
             $port->update([
-                'status' => 'running',
-                'end_time' => $newEndTime,
-                'remaining_time' => 0,
+                'status'         => 'running',
+                'end_time'       => $newEndTime,
+                'remaining_time' => 0,  // Clear port's remaining_time as it's now running
+                'pause_expiry'   => null // Clear pause expiry
             ]);
 
-            $cacheKey = 'port_' . $port->id . '_job_dispatched';
+            // Then update the token's remaining time to match
+            if ($port->current_token) {
+                Token::where('token', $port->current_token)
+                    ->update(['remaining_time' => $remainingTime]);
+            }
+
+            event(new MonitorUpdate('charging_resumed', $port->id, $port->current_token, $duration, $remainingTime));
+
+            $cacheKey = "port_{$port->id}_job_dispatched";
+
+            // Generate a new session ID
+            $sessionId = Str::uuid()->toString();
+            Cache::put("port_{$port->id}_session_id", $sessionId);
 
             if (!Cache::has($cacheKey)) {
                 try {
-                    // Log the current_token before dispatching the job
                     Log::info("Resuming charging for port {$port->id} with token {$port->current_token}");
 
-                    EndChargingJob::dispatch($port->current_token, $port->id)
+                    EndChargingJob::dispatch($port->current_token, $port->id, $sessionId)
                         ->onQueue('high_priority')
                         ->delay(now()->addSeconds($remainingTime));
 
                     Cache::put($cacheKey, true, $remainingTime);
-                    Log::info("Port {$port->id} resumed with remaining time {$remainingTime} seconds.");
+                    Log::info("Port {$port->id} resumed with remaining time {$remainingTime} seconds and session ID {$sessionId}.");
+
+                    return ['success' => true, 'remaining_time' => $remainingTime];
                 } catch (\Exception $e) {
-                    Log::error('Failed to dispatch EndChargingJob for port ' . $port->id, ['error' => $e->getMessage()]);
+                    Log::error("Failed to dispatch EndChargingJob for port {$port->id}", ['error' => $e->getMessage()]);
                     return ['success' => false, 'message' => 'Failed to dispatch EndChargingJob'];
                 }
             }
@@ -413,6 +550,45 @@ class TokenController extends Controller
         }
 
         return ['success' => false, 'message' => 'Port not paused or no remaining time'];
+    }
+
+    public function showMonitor()
+    {
+        $ports = Port::all()->map(function ($port) {
+            $token = Token::where('token', $port->current_token)->first();
+            $duration = $token ? $token->duration : 0;
+
+            // Calculate initial state data
+            if ($port->status === 'running') {
+                $remainingTime = $this->calculateTimeAmount($port->end_time);
+                $port->remaining_time = $remainingTime;
+                $port->duration = $duration; // Add duration to match event format
+                $port->event_type = 'charging_started'; // Add event type to match format
+            } else if ($port->status === 'paused') {
+                if ($port->pause_expiry === null) {
+                    $port->pause_expiry = 0;
+                }
+                $port->duration = $duration; // Add duration to match event format
+                $port->event_type = 'charging_paused'; // Add event type to match format
+            } else {
+                $port->event_type = 'idle'; // For consistency
+                $port->duration = 0;
+                $port->remaining_time = 0;
+            }
+
+            // Add other fields that might be needed by the view
+            $port->token = $port->current_token;
+            
+            return $port;
+        });
+
+        return view('admin.monitor', compact('ports'));
+    }
+
+    public function getCurrent($port)
+    {
+        $cacheKey = "port_{$port}_current";
+        return response()->json(['current' => Cache::get($cacheKey, 0.0)]);
     }
 
     protected function sendMQTTCommand($port, $action, $duration = null)
@@ -426,9 +602,8 @@ class TokenController extends Controller
             $this->mqtt->disconnect();
 
             return ['success' => true];
-
         } catch (\Exception $e) {
-            Log::error("(controller) Failed to send MQTT {$action} command for port {$port}: " . $e->getMessage());
+            Log::error("Failed to send MQTT {$action} command for port {$port}: " . $e->getMessage());
             return ['success' => false, 'message' => 'Failed to communicate with charging port'];
         }
     }
@@ -436,19 +611,10 @@ class TokenController extends Controller
     protected function calculateTimeAmount($endTime)
     {
         $now = now();
-        Log::info("Current time (now()): {$now}");
-        Log::info("End time (endTime): {$endTime}");
-
-        // Ensure endTime is a Carbon instance
-        if (!$endTime instanceof \Carbon\Carbon) {
-            $endTime = \Carbon\Carbon::parse($endTime);
+        if (!$endTime instanceof Carbon) {
+            $endTime = Carbon::parse($endTime);
         }
 
-        if ($endTime->greaterThan($now)) {
-            return floor($now->diffInSeconds($endTime)); // Round down to avoid fractions
-        } else {
-            return 0; // If endTime is less than now, return 0
-        }
+        return $endTime->greaterThan($now) ? floor($now->diffInSeconds($endTime)) : 0;
     }
-
 }

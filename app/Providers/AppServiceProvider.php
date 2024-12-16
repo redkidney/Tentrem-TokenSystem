@@ -1,6 +1,7 @@
 <?php
 
 namespace App\Providers;
+use Illuminate\Support\Facades\Blade;
 
 // use App\Jobs\MqttSubscribeJob;
 use Illuminate\Support\ServiceProvider;
@@ -20,7 +21,8 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot()
     {
-        // MqttSubscribeJob::dispatch()
-        //     ->onQueue('long_running');
+        Blade::component('layouts.admin', 'admin-layout');
+        Blade::component('components.sidebar', 'sidebar');
+        Blade::component('components.top-navigation', 'top-navigation');
     }
 }

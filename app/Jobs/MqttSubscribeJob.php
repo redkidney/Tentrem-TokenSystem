@@ -10,8 +10,10 @@ use Illuminate\Queue\SerializesModels;
 use App\Services\MqttSubscribeService;
 use App\Services\MqttService;
 use App\Http\Controllers\TokenController;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use App\Events\ChargingStatus;
+use App\Events\CurrentUpdate;
 
 class MqttSubscribeJob implements ShouldQueue
 {
@@ -38,6 +40,15 @@ class MqttSubscribeJob implements ShouldQueue
             $mqttService->subscribe("charging/port2/status", function ($message) {
                 Log::info("(MqttSubscribeJob) Received MQTT message from port 2: " . $message);
                 $this->handleMessage(2, $message);
+            });
+
+            // Add current monitoring subscriptions
+            $mqttService->subscribe("charging/port1/current", function ($message) {
+                $this->handleCurrentUpdate(1, $message);
+            });
+
+            $mqttService->subscribe("charging/port2/current", function ($message) {
+                $this->handleCurrentUpdate(2, $message);
             });
 
             // Start listening for messages
@@ -91,7 +102,7 @@ class MqttSubscribeJob implements ShouldQueue
 
         if ($result['success']) {
             Log::info("Successfully paused charging for port {$port} via controller.");
-            event(new ChargingStatus('charging_paused', $port, $result['remaining_time']));
+            event(new ChargingStatus('charging_paused', $port, $result['remaining_time'], $result['pause_expiry']));
         } else {
             Log::warning("Failed to pause charging for port {$port}: " . $result['message']);
         }
@@ -106,6 +117,20 @@ class MqttSubscribeJob implements ShouldQueue
             Log::info("Frontend resume event triggered for port {$port} with remaining time {$result['remaining_time']} seconds.");
         } else {
             Log::warning("Failed to resume charging for port {$port}: " . $result['message']);
+        }
+    }
+
+    protected function handleCurrentUpdate($port, $message)
+    {
+        try {
+            $data = json_decode($message, true);
+            if (isset($data['current'])) {
+                $current = $data['current'];
+                Cache::put("port_{$port}_current", $current, now()->addMinutes(5));
+                event(new CurrentUpdate($port, $current));
+            }
+        } catch (\Exception $e) {
+            Log::error("Error handling current update for port {$port}: " . $e->getMessage());
         }
     }
 

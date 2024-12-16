@@ -7,7 +7,7 @@
     <meta name="csrf-token" content="{{ csrf_token() }}">
     @vite('resources/css/app.css')
     @vite('resources/js/app.js')
-    <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+    {{-- <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script> --}}
     <style>
         label, .text-sm {
             font-size: 1.1em;
@@ -35,6 +35,15 @@
         @keyframes pulse {
             0%, 100% { transform: scale(1); }
             50% { transform: scale(1.05); }
+        }
+
+        @keyframes fadeOut {
+            from { opacity: 1; }
+            to { opacity: 0; }
+        }
+
+        .fade-out {
+            animation: fadeOut 2s ease-out forwards;
         }
         
         .grid-container {
@@ -78,7 +87,7 @@
     <div class="grid-container">
 
         @foreach([1, 2] as $port)
-        <div id="port{{ $port }}" x-data="chargingStation({{ $port }}, '{{ $ports[$port-1]->status }}', '{{ $ports[$port-1]->start_time }}', '{{ $ports[$port-1]->end_time }}', {{ $ports[$port-1]->duration }})" x-init="init()" class="bg-white shadow-lg rounded-lg p-6">
+        <div id="port{{ $port }}" x-data="chargingStation({{ $port }}, '{{ $ports[$port-1]->status }}', '{{ $ports[$port-1]->start_time }}', '{{ $ports[$port-1]->end_time }}', {{ $ports[$port-1]->duration ?? 0 }}, {{ $ports[$port-1]->pause_expiry ?? 'null' }})" x-init="init()" class="bg-white shadow-lg rounded-lg p-6">
             <h1 class="text-3xl font-bold text-center mb-4" :class="{'bg-gradient-to-r from-blue-500 to-green-500 text-white p-2 rounded': isCharging}">Station {{ $port }}</h1>
 
             <!-- Token Form -->
@@ -145,13 +154,20 @@
                     </div>
                 </div>
             </div>
+
+            <!-- Pause Expiry Timer -->
+            <div x-show="isPaused" class="mt-4 text-center">
+                <p class="text-orange-600 font-medium">
+                    Pause expires in: <span x-text="formatTime(pauseTimeLeft)"></span>
+                </p>
+            </div>
         </div>
         @endforeach
 
     </div>
 
     <script>
-        function chargingStation(port, initialStatus = 'idle', startTime = null, endTime = null, duration) {
+        function chargingStation(port, initialStatus = 'idle', startTime = null, endTime = null, duration = 0, initialPauseExpiry = null) {
             return {
                 token: '',
                 isValidated: false,
@@ -161,24 +177,43 @@
                 duration: duration,
                 interval: null,
                 isStarting: false,
+                pauseExpiryTimer: null,
+                pauseTimeLeft: initialPauseExpiry ? parseInt(initialPauseExpiry) : 0,
 
                 init() {
-                    if (this.isCharging) {
-                        this.isValidated = true;
+                    if (this.isCharging && startTime && endTime) {
                         this.calculateRemainingTime(startTime, endTime);
+                        this.startCountdown();
                     } else if (this.isPaused) {
                         this.remainingTime = this.duration * 60;
+                        if (this.pauseExpiry > 0) {
+                            this.startPauseCountdown();
+                        }
                         this.displayPausedTimer();
                     }
 
                     window.Echo.channel('charging-port')
-                        .listen('ChargingStatus', (e) => {
-                            if (e.status === 'charging_started' && e.port === port) {
-                                if (!this.isCharging) this.handleStartCharging();
-                            } else if (e.status === 'charging_paused' && e.port === port) {
-                                this.pauseCountdown(e.remaining_time);
-                            } else if (e.status === 'charging_resumed' && e.port === port) {
-                                this.resumeCountdown(e.remaining_time);
+                        .listen('.ChargingStatus', (e) => {
+                            if (parseInt(e.port) !== port) return;
+
+                            switch (e.status) {
+                                case 'charging_started':
+                                    if (!this.isCharging) this.handleStartCharging();
+                                    break;
+                                case 'charging_paused':
+                                    this.handlePause(e.remaining_time, e.pause_expiry);
+                                    break;
+                                case 'charging_resumed':
+                                    this.resumeCountdown(e.remaining_time);
+                                    break;
+                                case 'charging_cancelled':
+                                    this.websocketCancelCharging(e.remaining_time);
+                                    break;
+                                case 'pause_expired':
+                                    this.handlePauseExpiration();
+                                    break;
+                                default:
+                                    console.warn(`Unknown status: ${e.status}`);
                             }
                         });
                 },
@@ -200,10 +235,21 @@
                     if (this.interval) clearInterval(this.interval);
 
                     this.interval = setInterval(() => {
-                        this.remainingTime--;
-                        if (this.remainingTime <= 0) {
-                            clearInterval(this.interval);
-                            this.endChargingSession();
+                        if (this.remainingTime > 0) {
+                            this.remainingTime--;
+                            if (this.remainingTime === 0) {
+                                clearInterval(this.interval);
+
+                                this.showToast('Charging session ended. Please wait...', 'success');
+                                
+                                const portElement = document.getElementById(`port${port}`);
+                                portElement.classList.add('pulse-animation');
+
+                                setTimeout(() => {
+                                    portElement.classList.remove('pulse-animation');
+                                    this.resetState();
+                                }, 2000); // adjustable delay
+                            }
                         }
                     }, 1000);
                 },
@@ -231,7 +277,7 @@
                 },
 
                 displayPausedTimer() {
-                    this.showToast(`Paused - ${this.formatTime(this.remainingTime)} remaining`, 'warning');
+                    this.showToast(`Paused - ${this.formatTime(this.pauseTimeLeft)} until expiry`, 'warning');
                     document.getElementById(`port${port}`).classList.add('paused', 'pulse-animation');
                 },
 
@@ -256,8 +302,13 @@
                     .then(data => {
                         if (data.success) {
                             this.isValidated = true;
-                            this.duration = data.duration;
-                            this.showToast('Token validated successfully', 'success');
+                            this.remainingTime = data.remaining_time;
+                            this.duration = Math.ceil(data.remaining_time / 60);
+                            
+                            const message = data.is_resuming ? 
+                                'Token validated. Resume charging?' : 
+                                'Token validated successfully';
+                            this.showToast(message, 'success');
                         } else {
                             this.showToast(data.message, 'error');
                         }
@@ -287,7 +338,9 @@
                             this.isCharging = true;
                             this.isPaused = false;
                             this.isStarting = false;
-                            this.remainingTime = this.duration * 60;
+                            // Use exact remaining time from response instead of calculating from duration
+                            this.remainingTime = data.remaining_time;
+                            this.duration = data.duration; // Store duration for reference
                             this.startCountdown();
                             this.showToast('Charging started successfully', 'success');
                         } else {
@@ -303,27 +356,70 @@
                 },
 
                 endChargingSession() {
-                    fetch(`/customer/${port}/end`, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').getAttribute('content')
-                        },
-                        body: JSON.stringify({ token: this.token })
-                    })
-                    .then(response => response.json())
-                    .then(data => {
-                        if (data.success) {
-                            this.showToast('Charging session ended successfully', 'success');
-                            setTimeout(() => this.resetState(), 3000);
-                        } else {
-                            this.showToast('Failed to notify the server.', 'error');
+                    // Only call endCharging if there was an error with the original job
+                    if (this.remainingTime > 0) {
+                        fetch(`/customer/${port}/end`, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').getAttribute('content')
+                            },
+                            body: JSON.stringify({ token: this.token })
+                        })
+                        .then(response => response.json())
+                        .then(data => {
+                            if (!data.success) {
+                                this.showToast('Failed to notify the server.', 'error');
+                            }
+                        })
+                        .catch(error => {
+                            console.error('Error:', error);
+                            this.showToast('Error ending the session.', 'error');
+                        })
+                        .finally(() => {
+                            this.resetState();
+                        });
+                    }
+                },
+
+                handlePause(remainingTime, pauseExpiry) {
+                    this.remainingTime = remainingTime;
+                    this.isCharging = false;
+                    this.isPaused = true;
+                    this.isValidated = true;
+                    this.pauseTimeLeft = pauseExpiry;
+                    
+                    if (this.interval) clearInterval(this.interval);
+                    if (this.pauseExpiryTimer) clearInterval(this.pauseExpiryTimer);
+
+                    this.startPauseExpiryCountdown();
+                    
+                    const portElement = document.getElementById(`port${port}`);
+                    portElement.classList.add('paused');
+                    portElement.classList.add('pulse-animation');
+                    
+                    this.showToast(`Charging paused. Will expire in ${this.formatTime(this.pauseTimeLeft)}`, 'warning');
+                },
+
+                startPauseExpiryCountdown() {
+                    if (this.pauseExpiryTimer) clearInterval(this.pauseExpiryTimer);
+                    
+                    // Start with current pauseTimeLeft value
+                    this.pauseExpiryTimer = setInterval(() => {
+                        if (this.pauseTimeLeft > 0) {
+                            this.pauseTimeLeft--;
+                            if (this.pauseTimeLeft <= 0) {
+                                clearInterval(this.pauseExpiryTimer);
+                                this.handlePauseExpiration();
+                            }
                         }
-                    })
-                    .catch(error => {
-                        console.error('Error:', error);
-                        this.showToast('Error ending the session.', 'error');
-                    });
+                    }, 1000);
+                },
+
+                handlePauseExpiration() {
+                    if (this.pauseExpiryTimer) clearInterval(this.pauseExpiryTimer);
+                    this.showToast('Pause period expired. Please enter token to resume charging.', 'warning');
+                    this.resetState();
                 },
 
                 handleCancelCharging() {
@@ -356,15 +452,37 @@
                     });
                 },
 
+                websocketCancelCharging(remainingTime) {
+                    this.showToast('Charging session has ended.', 'success');
+                    this.resetState();
+                    this.remainingTime = remainingTime;
+                },
+
                 resetState() {
+                    console.log('resetState called from:', new Error().stack);
                     this.token = '';
                     this.isValidated = false;
                     this.isCharging = false;
                     this.isPaused = false;
                     this.remainingTime = 0;
+                    this.pauseExpiryTime = null;
+                    if (this.interval) {
+                        clearInterval(this.interval);
+                        this.interval = null;
+                    }
+                    if (this.pauseExpiryTimer) {
+                        clearInterval(this.pauseExpiryTimer);
+                        this.pauseExpiryTimer = null;
+                    }
+                    const portElement = document.getElementById(`port${port}`);
+                    portElement.classList.remove('paused');
+                    portElement.classList.remove('pulse-animation');
                 },
 
                 formatTime(seconds) {
+                    if (isNaN(seconds)) return "0:00";
+                    // Round to nearest integer to avoid floating point issues
+                    seconds = Math.round(seconds);
                     const minutes = Math.floor(seconds / 60);
                     const remainingSeconds = seconds % 60;
                     return `${minutes}:${remainingSeconds < 10 ? '0' : ''}${remainingSeconds}`;
@@ -378,7 +496,11 @@
                     if (existingToast) return
                     
                     const toast = document.createElement('div');
-                    toast.className = `flex items-center w-full max-w-xs p-4 mb-4 text-gray-500 bg-white rounded-lg shadow ${type === 'success' ? 'text-green-500' : 'text-red-500'}`;
+                    toast.className = `flex items-center w-full max-w-xs p-4 mb-4 text-gray-500 bg-white rounded-lg shadow ${
+                        type === 'success' ? 'text-green-500' : 
+                        type === 'warning' ? 'text-orange-500' : 
+                        'text-red-500'
+                    }`;
                     toast.innerHTML = `
                         <div class="inline-flex items-center justify-center w-8 h-8 ${type === 'success' ? 'bg-green-100' : 'bg-red-100'} rounded-lg">
                             ${type === 'success' 

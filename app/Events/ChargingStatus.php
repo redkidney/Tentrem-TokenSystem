@@ -18,6 +18,7 @@ class ChargingStatus implements ShouldBroadcastNow
     public $status;
     public $port;
     public $remaining_time;
+    public $pause_expiry;
 
     /**
      * Create a new event instance.
@@ -27,18 +28,23 @@ class ChargingStatus implements ShouldBroadcastNow
      * @param int|null $remaining_time Optional remaining time for resume events
      */
 
-    public function __construct($status, $port, $remaining_time = null)
-    {
-        Log::info("ChargingStatus event created with status: {$status}, port: {$port}, and remaining_time: " . ($remaining_time ?? 'N/A'));
-        $this->status = $status;
-        $this->port = $port;
-        $this->remaining_time = $remaining_time;
-    }
+     public function __construct($status, $port, $remaining_time = 0, $pause_expiry = null)
+     {
+         $this->status = $status;
+         $this->port = $port;
+         $this->remaining_time = $remaining_time;
+         $this->pause_expiry = $pause_expiry;
+     }
 
     public function broadcastOn(): array
     {
         return [
             new Channel('charging-port'),
         ];
+    }
+
+    public function broadcastAs()
+    {
+        return 'ChargingStatus';
     }
 }

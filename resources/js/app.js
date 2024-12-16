@@ -7,7 +7,11 @@
 import './bootstrap';
 import 'laravel-datatables-vite';
 import 'flowbite';
+import './echo';
 import { createApp } from 'vue';
+import Alpine from 'alpinejs'
+import focus from '@alpinejs/focus'
+import collapse from '@alpinejs/collapse'
 
 /**
  * Next, we will create a fresh Vue application instance. You may then begin
@@ -16,6 +20,9 @@ import { createApp } from 'vue';
  */
 
 const app = createApp({});
+Alpine.plugin(focus)
+Alpine.plugin(collapse)
+Alpine.start()
 
 import ExampleComponent from './components/ExampleComponent.vue';
 app.component('example-component', ExampleComponent);
